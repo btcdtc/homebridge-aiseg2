@@ -1,4 +1,14 @@
-import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic, Categories } from 'homebridge';
+import {
+  API,
+  DynamicPlatformPlugin,
+  Logger,
+  PlatformAccessory,
+  PlatformAccessoryEvent,
+  PlatformConfig,
+  Service,
+  Characteristic,
+  Categories,
+} from 'homebridge';
 
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 import { AirConditionerAccessory } from './airConditionerAccessory';
@@ -40,6 +50,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
 
   configureAccessory(accessory: PlatformAccessory) {
     this.log.info('Loading accessory from cache:', accessory.displayName);
+    this.configureIdentify(accessory);
     this.accessories.push(accessory);
   }
 
@@ -66,6 +77,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       existingAccessory.context.device = device;
       existingAccessory.context.kind = device.kind;
       existingAccessory.category = this.categoryForDevice(device.kind);
+      this.configureIdentify(existingAccessory);
       if (existingAccessory.displayName !== homeKitName) {
         existingAccessory.updateDisplayName(homeKitName);
       }
@@ -77,6 +89,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       const accessory = new this.api.platformAccessory(homeKitName, uuid, this.categoryForDevice(device.kind));
       accessory.context.device = device;
       accessory.context.kind = device.kind;
+      this.configureIdentify(accessory);
       this.createAccessoryHandler(device.kind, accessory);
       this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
       this.accessories.push(accessory);
@@ -252,6 +265,17 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       default:
         return this.api.hap.Categories.OTHER;
     }
+  }
+
+  private configureIdentify(accessory: PlatformAccessory): void {
+    if (accessory.listenerCount(PlatformAccessoryEvent.IDENTIFY) > 0) {
+      return;
+    }
+
+    accessory.on(PlatformAccessoryEvent.IDENTIFY, () => {
+      const device = accessory.context.device as SupportedDevice | undefined;
+      this.log.info(`Identify requested for '${device?.displayName || accessory.displayName}'`);
+    });
   }
 
   private formatError(error: unknown): string {
