@@ -1,4 +1,4 @@
-import { Service, PlatformAccessory, CharacteristicValue } from 'homebridge';
+import { Service, PlatformAccessory, CharacteristicValue, PlatformAccessoryEvent } from 'homebridge';
 
 import { CheckResult, LightingChangeResponse, LightingStatus } from './aiseg2Client';
 import { LightingDevice } from './devices';
@@ -10,9 +10,13 @@ enum LightState {
   Off = '0x31',
 }
 
-type LightingAction =
+type LightingControlAction =
   | { type: 'power'; state: boolean }
   | { type: 'brightness'; brightness: number };
+
+type LightingAction =
+  | LightingControlAction
+  | { type: 'identify'; state: boolean; brightness?: number };
 
 export class LightingAccessory {
   private service: Service;
@@ -77,6 +81,8 @@ export class LightingAccessory {
       this.service.removeCharacteristic(this.service.getCharacteristic(this.platform.Characteristic.Brightness));
       this.platform.log.info(`${deviceData.displayName} brightness control disabled: device does not support dimming`);
     }
+
+    this.accessory.on(PlatformAccessoryEvent.IDENTIFY, this.identify.bind(this));
 
     // Get a control token from the AiSEG2 controller
     this.updateControlToken().catch(error => {
@@ -232,6 +238,11 @@ export class LightingAccessory {
   }
 
   private async performLightingAction(action: LightingAction): Promise<void> {
+    if (action.type === 'identify') {
+      await this.performIdentifyAction(action);
+      return;
+    }
+
     const deviceData = this.accessory.context.device;
     const expected = this.expectedStateForAction(action);
     const actionId = this.beginPendingLightingState(expected);
@@ -261,10 +272,61 @@ export class LightingAccessory {
     }
   }
 
+  private identify(): void {
+    const deviceData = this.accessory.context.device as LightingDevice;
+    if (this.actionQueue.isRunning || this.actionQueue.hasQueued) {
+      this.platform.log.warn(`${deviceData.displayName} identify flash skipped: light action is already pending`);
+      return;
+    }
+
+    this.queueLightingAction({
+      type: 'identify',
+      state: this.States.On,
+      brightness: this.supportsBrightness ? this.States.Brightness : undefined,
+    });
+  }
+
+  private async performIdentifyAction(action: Extract<LightingAction, { type: 'identify' }>): Promise<void> {
+    const deviceData = this.accessory.context.device as LightingDevice;
+    const flashState = !action.state;
+
+    this.States.BlockUpdate = 10;
+    this.platform.log.info(`${deviceData.displayName} identify flash started`);
+
+    try {
+      await this.ensureControlToken();
+      const flashResponse = await this.sendLightingAction({ type: 'power', state: flashState });
+      await this.waitForAcceptedChange(flashResponse);
+      this.applyPendingLightingState(deviceData, { state: flashState });
+      await this.delay(700);
+
+      await this.ensureControlToken();
+      const restoreResponse = await this.sendLightingAction({ type: 'power', state: action.state });
+      await this.waitForAcceptedChange(restoreResponse);
+
+      if (action.state && action.brightness !== undefined && action.brightness > 0 && this.supportsBrightness) {
+        await this.ensureControlToken();
+        const brightnessResponse = await this.sendLightingAction({ type: 'brightness', brightness: action.brightness });
+        await this.waitForAcceptedChange(brightnessResponse);
+      }
+
+      this.applyPendingLightingState(deviceData, {
+        state: action.state,
+        brightness: action.brightness,
+      });
+      this.platform.log.info(`${deviceData.displayName} identify flash completed`);
+    } catch (error) {
+      this.platform.log.error(`${deviceData.displayName} identify flash failed: ${this.formatError(error)}`);
+      await this.updateLightingState(true);
+    } finally {
+      this.States.BlockUpdate = 0;
+    }
+  }
+
   private monitorLightingAction(
     actionId: number,
     expected: Partial<LightingStatus>,
-    action: LightingAction,
+    action: LightingControlAction,
     response: LightingChangeResponse,
   ): void {
     void this.confirmAcceptedLightingAction(actionId, expected, action, response).catch(error => {
@@ -284,7 +346,7 @@ export class LightingAccessory {
   private async confirmAcceptedLightingAction(
     actionId: number,
     expected: Partial<LightingStatus>,
-    action: LightingAction,
+    action: LightingControlAction,
     response: LightingChangeResponse,
   ): Promise<void> {
     const result = await this.waitForAcceptedChange(response);
@@ -353,7 +415,7 @@ export class LightingAccessory {
     return true;
   }
 
-  private async sendLightingAction(action: LightingAction): Promise<LightingChangeResponse> {
+  private async sendLightingAction(action: LightingControlAction): Promise<LightingChangeResponse> {
     const deviceData = this.accessory.context.device;
     if (action.type === 'power') {
       const onOff = action.state
@@ -373,7 +435,7 @@ export class LightingAccessory {
   private async confirmLightingState(
     actionId: number,
     expected: Partial<LightingStatus>,
-    action: LightingAction,
+    action: LightingControlAction,
   ): Promise<void> {
     const deviceData = this.accessory.context.device;
     let lastStatus: LightingStatus | undefined;
@@ -452,7 +514,7 @@ export class LightingAccessory {
     return true;
   }
 
-  private expectedStateForAction(action: LightingAction): Partial<LightingStatus> {
+  private expectedStateForAction(action: LightingControlAction): Partial<LightingStatus> {
     if (action.type === 'power') {
       return { state: action.state };
     }
@@ -460,7 +522,7 @@ export class LightingAccessory {
     return { state: true, brightness: action.brightness };
   }
 
-  private formatLightingActionRequest(action: LightingAction): string {
+  private formatLightingActionRequest(action: LightingControlAction): string {
     if (action.type === 'power') {
       return `power request: ${action.state ? 'ON' : 'OFF'}`;
     }
@@ -468,7 +530,7 @@ export class LightingAccessory {
     return `brightness request: ${action.brightness}%`;
   }
 
-  private formatLightingActionAccepted(action: LightingAction, response: LightingChangeResponse): string {
+  private formatLightingActionAccepted(action: LightingControlAction, response: LightingChangeResponse): string {
     if (action.type === 'power') {
       return `power request accepted: acceptId=${response.acceptId ?? '-'}`;
     }
@@ -476,7 +538,7 @@ export class LightingAccessory {
     return `brightness request accepted: acceptId=${response.acceptId ?? '-'}`;
   }
 
-  private formatLightingActionSkipped(action: LightingAction): string {
+  private formatLightingActionSkipped(action: LightingControlAction): string {
     if (action.type === 'power') {
       return `power request ${action.state ? 'ON' : 'OFF'} confirmation skipped`;
     }
@@ -484,7 +546,7 @@ export class LightingAccessory {
     return `brightness request ${action.brightness}% confirmation skipped`;
   }
 
-  private formatLightingActionComplete(action: LightingAction): string {
+  private formatLightingActionComplete(action: LightingControlAction): string {
     if (action.type === 'power') {
       return `switched ${action.state ? 'ON' : 'OFF'}`;
     }
@@ -492,7 +554,7 @@ export class LightingAccessory {
     return `brightness set to ${action.brightness}%`;
   }
 
-  private formatLightingActionFailed(action: LightingAction): string {
+  private formatLightingActionFailed(action: LightingControlAction): string {
     if (action.type === 'power') {
       return 'state update failed';
     }

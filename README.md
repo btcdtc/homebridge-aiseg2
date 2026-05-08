@@ -25,7 +25,9 @@ All development and testing has been performed using an MKN704 controller. It is
 
 ## Configuration
 
-To configure the plugin the hostname or IP address of the controller will need to be supplied as well as the password used to login to the web interface. _Autodiscovery of controllers is not yet implemented._
+To configure the plugin, supply the password used to login to the AiSEG2 web interface. Set `host` for a fixed controller IP, or
+leave `host` empty with `autodiscover` enabled to scan the Homebridge host's current local IPv4 subnets. Auto discovery does not
+write the discovered address back to `config.json`, and a configured `host` always takes precedence.
 
     "platforms": [{
         "name": "AiSEG2",
@@ -38,6 +40,9 @@ To configure the plugin the hostname or IP address of the controller will need t
         "exposeContactSensorLockState": false,
         "platform": "AiSEG2"
     }]
+
+Auto discovery is intentionally local-only: it scans private IPv4 addresses on the Homebridge machine's active non-Docker
+interfaces and does not use mDNS or cross-VLAN routing.
 
 Grouping options use HomeKit primary/linked services so related measurements stay associated with the same accessory. Air purifiers
 link odor, PM2.5, house dust, and mode switches to the purifier service. Air conditioners link indoor humidity, outdoor

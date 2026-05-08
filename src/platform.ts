@@ -11,6 +11,7 @@ import {
 } from 'homebridge';
 
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
+import { discoverAiseg2Controller, localDiscoverySubnets } from './aiseg2Discovery';
 import { AirConditionerAccessory } from './airConditionerAccessory';
 import { AirEnvironmentSensorAccessory } from './airEnvironmentSensorAccessory';
 import { AirPurifierAccessory } from './airPurifierAccessory';
@@ -26,7 +27,7 @@ import { LightingDevice, SupportedDevice, SupportedDeviceKind } from './devices'
 export class Aiseg2Platform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
   public readonly Characteristic: typeof Characteristic;
-  public readonly client: Aiseg2Client;
+  public client: Aiseg2Client;
 
   public readonly accessories: PlatformAccessory[] = [];
 
@@ -37,7 +38,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   ) {
     this.Service = this.api.hap.Service;
     this.Characteristic = this.api.hap.Characteristic;
-    this.client = new Aiseg2Client(String(this.config.host || ''), String(this.config.password || ''));
+    this.client = new Aiseg2Client(this.configuredHost, this.password);
     this.log.debug('Finished initializing platform:', this.config.name);
 
     this.api.on('didFinishLaunching', () => {
@@ -56,6 +57,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
 
   // Discover the various AiSEG2 device types that are compatible with Homekit
   async discoverDevices(): Promise<void> {
+    await this.resolveClient();
     await this.discoverLighting();
     await this.discoverContactSensors();
     await this.discoverSmokeSensors();
@@ -312,6 +314,38 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   private configBoolean(key: string, defaultValue: boolean): boolean {
     const value = this.config[key];
     return typeof value === 'boolean' ? value : defaultValue;
+  }
+
+  private async resolveClient(): Promise<void> {
+    const host = this.configuredHost;
+    if (host) {
+      if (this.autodiscover) {
+        this.log.info(`AiSEG2 auto discovery is enabled, but host is configured; using ${host}`);
+      }
+      this.client = new Aiseg2Client(host, this.password);
+      return;
+    }
+
+    if (!this.autodiscover) {
+      throw new Error('AiSEG2 host is required when autodiscover is disabled');
+    }
+
+    this.log.info(`Auto discovering AiSEG2 controller on local subnets: ${localDiscoverySubnets().join(', ') || 'none'}`);
+    const result = await discoverAiseg2Controller(this.password);
+    this.log.info(`Auto discovered AiSEG2 controller at ${result.host} on ${result.interfaceName} ${result.subnet}`);
+    this.client = new Aiseg2Client(result.host, this.password);
+  }
+
+  private get configuredHost(): string {
+    return String(this.config.host || '').trim();
+  }
+
+  private get password(): string {
+    return String(this.config.password || '');
+  }
+
+  private get autodiscover(): boolean {
+    return this.configBoolean('autodiscover', false);
   }
 
   public formatHomeKitName(name: string): string {
