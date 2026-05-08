@@ -8,6 +8,7 @@ import { Aiseg2Platform } from './platform';
 export class DoorLockAccessory {
   private readonly service: Service;
   private readonly device: DoorLockDevice;
+  private pendingTargetSecured?: boolean;
 
   private state = {
     currentState: 3,
@@ -56,30 +57,63 @@ export class DoorLockAccessory {
   async setTargetState(value: CharacteristicValue): Promise<void> {
     const targetState = Number(value);
     const desiredSecured = targetState === this.platform.Characteristic.LockTargetState.SECURED;
-    const status = await this.platform.client.getDoorLockStatus(this.device, true);
 
-    if (status.secured === desiredSecured) {
-      this.applyStatus(status);
+    if (this.pendingTargetSecured !== undefined) {
+      this.updateTargetState(this.pendingTargetSecured);
+      this.platform.log.warn(
+        `${this.device.displayName} lock request ignored while ${this.formatSecured(this.pendingTargetSecured)} is still pending`,
+      );
       return;
     }
 
+    const status = await this.platform.client.getDoorLockStatus(this.device, true);
+    this.platform.log.info(
+      `${this.device.displayName} lock request: target=${this.formatSecured(desiredSecured)}, ` +
+      `current=${this.formatSecured(status.secured)}, command=${status.statecmd || '-'}`,
+    );
+
+    if (status.secured === desiredSecured) {
+      this.applyStatus(status);
+      this.platform.log.info(`${this.device.displayName} lock request ignored: already ${this.formatSecured(desiredSecured)}`);
+      return;
+    }
+
+    this.pendingTargetSecured = desiredSecured;
     this.updateTargetState(desiredSecured);
 
-    const token = await this.platform.client.getDoorLockControlToken();
-    const response = await this.platform.client.changeDoorLock(this.device, token, status);
-    this.assertAcceptedResponse(response);
+    try {
+      const token = await this.platform.client.getDoorLockControlToken();
+      const response = await this.platform.client.changeDoorLock(this.device, token, status);
+      this.assertAcceptedResponse(response);
+      this.platform.log.info(
+        `${this.device.displayName} lock request accepted: target=${this.formatSecured(desiredSecured)}, ` +
+        `acceptId=${response.acceptId ?? '-'}`,
+      );
 
-    this.confirmTargetState(response, token, desiredSecured).catch(error => {
-      this.platform.log.error(`Failed to confirm door lock '${this.device.displayName}' state: ${this.formatError(error)}`);
-      this.updateStatus(true).catch(refreshError => {
-        this.platform.log.error(
-          `Failed to refresh door lock '${this.device.displayName}' after confirmation failure: ${this.formatError(refreshError)}`,
-        );
+      this.confirmTargetState(response, token, desiredSecured).catch(error => {
+        this.platform.log.error(`Failed to confirm door lock '${this.device.displayName}' state: ${this.formatError(error)}`);
+        this.updateStatus(true).catch(refreshError => {
+          this.platform.log.error(
+            `Failed to refresh door lock '${this.device.displayName}' after confirmation failure: ${this.formatError(refreshError)}`,
+          );
+        });
+      }).finally(() => {
+        this.pendingTargetSecured = undefined;
       });
-    });
+    } catch (error) {
+      this.pendingTargetSecured = undefined;
+      await this.updateStatus(true);
+      throw error;
+    }
   }
 
   private applyStatus(status: DoorLockStatus): void {
+    if (this.pendingTargetSecured !== undefined && status.secured !== this.pendingTargetSecured) {
+      this.applyCurrentState(status);
+      this.updateTargetState(this.pendingTargetSecured);
+      return;
+    }
+
     if (status.secured === true) {
       this.state.currentState = this.platform.Characteristic.LockCurrentState.SECURED;
       this.state.targetState = this.platform.Characteristic.LockTargetState.SECURED;
@@ -131,6 +165,7 @@ export class DoorLockAccessory {
 
       if (status.secured === desiredSecured) {
         this.applyStatus(status);
+        this.platform.log.info(`${this.device.displayName} lock state confirmed: ${this.formatSecured(desiredSecured)}`);
         return;
       }
     }
@@ -169,5 +204,17 @@ export class DoorLockAccessory {
 
   private formatError(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+  }
+
+  private formatSecured(secured: boolean | undefined): string {
+    if (secured === true) {
+      return 'secured';
+    }
+
+    if (secured === false) {
+      return 'unsecured';
+    }
+
+    return 'unknown';
   }
 }

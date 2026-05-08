@@ -95,6 +95,9 @@ export class AirConditionerAccessory {
     const targetState = Number(value);
     const desiredActive = targetState !== this.platform.Characteristic.TargetHeatingCoolingState.OFF;
     const status = await this.platform.client.getAirConditionerStatus(this.device, true);
+    this.platform.log.info(
+      `${this.device.displayName} power request: target=${this.formatActive(desiredActive)}, current=${this.formatActive(status.active)}`,
+    );
 
     if (status.active !== desiredActive) {
       this.state.targetHeatingCoolingState = targetState;
@@ -102,6 +105,7 @@ export class AirConditionerAccessory {
 
       const token = await this.platform.client.getAirConditionerControlToken();
       const response = await this.platform.client.changeAirConditionerPower(this.device, token, status);
+      this.platform.log.info(`${this.device.displayName} power request accepted: acceptId=${response.acceptId ?? '-'}`);
       await this.waitForAcceptedChange(response, token);
 
       this.confirmPowerState(desiredActive).catch(error => {
@@ -111,6 +115,7 @@ export class AirConditionerAccessory {
     }
 
     this.applyStatus(status);
+    this.platform.log.info(`${this.device.displayName} power request ignored: already ${this.formatActive(desiredActive)}`);
   }
 
   async setTargetTemperature(value: CharacteristicValue): Promise<void> {
@@ -122,7 +127,7 @@ export class AirConditionerAccessory {
     this.state.targetTemperature = temperature;
     this.service.updateCharacteristic(this.platform.Characteristic.TargetTemperature, temperature);
     this.platform.log.warn(
-      `${this.device.displayName} target temperature changes are not sent to AiSEG2 yet; stored ${temperature}C in HomeKit`,
+      `${this.device.displayName} target temperature request ignored by AiSEG2: stored ${temperature}C in HomeKit only`,
     );
   }
 
@@ -275,6 +280,7 @@ export class AirConditionerAccessory {
 
       if (status.active === desiredActive) {
         this.applyStatus(status);
+        this.platform.log.info(`${this.device.displayName} power state confirmed: ${this.formatActive(desiredActive)}`);
         return;
       }
 
@@ -292,5 +298,9 @@ export class AirConditionerAccessory {
 
   private formatError(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+  }
+
+  private formatActive(active: boolean): string {
+    return active ? 'on' : 'off';
   }
 }

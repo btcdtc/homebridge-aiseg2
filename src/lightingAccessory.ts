@@ -142,7 +142,10 @@ export class LightingAccessory {
   // Handle set on requests from HomeKit
   async setOn(value: CharacteristicValue): Promise<void> {
     const requestedState = Boolean(value);
+    const deviceData = this.accessory.context.device;
+
     if (requestedState === this.States.On) {
+      this.platform.log.info(`${deviceData.displayName} power request ignored: already ${requestedState ? 'ON' : 'OFF'}`);
       return;
     }
 
@@ -150,13 +153,13 @@ export class LightingAccessory {
       ? LightState.On
       : LightState.Off;
 
-    const deviceData = this.accessory.context.device;
     this.States.BlockUpdate = 10;
+    this.platform.log.info(`${deviceData.displayName} power request: ${requestedState ? 'ON' : 'OFF'}`);
 
     try {
       await this.ensureControlToken();
       const response = await this.platform.client.changeLighting(deviceData, this.States.Token, onOff, '-');
-      this.platform.log.debug(`Response: '${JSON.stringify(response)}'`);
+      this.platform.log.info(`${deviceData.displayName} power request accepted: acceptId=${response.acceptId ?? '-'}`);
 
       const result = await this.waitForAcceptedChange(response);
 
@@ -194,10 +197,12 @@ export class LightingAccessory {
   async setBrightness(value: CharacteristicValue): Promise<void> {
     const deviceData = this.accessory.context.device;
     if (deviceData.dimmable === false) {
+      this.platform.log.warn(`${deviceData.displayName} brightness request rejected: device does not support brightness control`);
       throw new Error(`${deviceData.displayName} does not support brightness control`);
     }
 
     if (Number(value) <= 0) {
+      this.platform.log.info(`${deviceData.displayName} brightness request: 0% maps to OFF`);
       await this.setOn(false);
       this.service.updateCharacteristic(this.platform.Characteristic.Brightness, 0);
       this.States.Brightness = 0;
@@ -206,6 +211,7 @@ export class LightingAccessory {
 
     const brightness = this.normalizeBrightness(value);
     this.States.BlockUpdate = 10;
+    this.platform.log.info(`${deviceData.displayName} brightness request: ${brightness}%`);
 
     try {
       await this.ensureControlToken();
@@ -215,6 +221,7 @@ export class LightingAccessory {
         '-',
         this.formatBrightnessLevel(brightness),
       );
+      this.platform.log.info(`${deviceData.displayName} brightness request accepted: acceptId=${response.acceptId ?? '-'}`);
 
       const result = await this.waitForAcceptedChange(response);
 
@@ -281,6 +288,7 @@ export class LightingAccessory {
 
       if (this.lightingStatusMatches(status, expected)) {
         this.States.BlockUpdate = 0;
+        this.platform.log.info(`${deviceData.displayName} state confirmed after action`);
         return;
       }
     }

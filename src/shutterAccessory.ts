@@ -66,7 +66,12 @@ export class ShutterAccessory {
     }
 
     const currentPosition = this.state.currentPosition;
+    this.platform.log.info(
+      `${this.device.displayName} position request: target=${targetPosition}%, current=${currentPosition}%`,
+    );
+
     if (targetPosition === currentPosition) {
+      this.platform.log.info(`${this.device.displayName} position request ignored: already ${targetPosition}%`);
       return;
     }
 
@@ -79,6 +84,9 @@ export class ShutterAccessory {
 
     const token = await this.platform.client.getShutterControlToken();
     const response = await this.platform.client.changeShutterPosition(this.device, token, targetPosition);
+    this.platform.log.info(
+      `${this.device.displayName} position request accepted: target=${targetPosition}%, acceptId=${response.acceptId ?? '-'}`,
+    );
     await this.waitForAcceptedChange(response, token);
 
     const desiredPosition = targetPosition >= 50 ? 100 : 0;
@@ -92,13 +100,17 @@ export class ShutterAccessory {
       return;
     }
 
+    this.platform.log.info(`${this.device.displayName} stop request`);
     const token = await this.platform.client.getShutterControlToken();
     const response = await this.platform.client.stopShutter(this.device, token);
+    this.platform.log.info(`${this.device.displayName} stop request accepted: acceptId=${response.acceptId ?? '-'}`);
     await this.waitForAcceptedChange(response, token);
 
     this.state.positionState = this.platform.Characteristic.PositionState.STOPPED;
     this.service.updateCharacteristic(this.platform.Characteristic.PositionState, this.state.positionState);
-    this.updateStatus(true).catch(error => {
+    this.updateStatus(true).then(() => {
+      this.platform.log.info(`${this.device.displayName} stop state refreshed after action`);
+    }).catch(error => {
       this.platform.log.error(`${this.device.displayName} post-stop refresh failed: ${this.formatError(error)}`);
     });
   }
@@ -166,6 +178,7 @@ export class ShutterAccessory {
 
       if (status.position === desiredPosition) {
         this.applyStatus(status);
+        this.platform.log.info(`${this.device.displayName} position confirmed: ${desiredPosition}%`);
         return;
       }
 
@@ -174,6 +187,9 @@ export class ShutterAccessory {
 
     if (lastStatus) {
       this.applyStatus(lastStatus);
+      this.platform.log.warn(
+        `${this.device.displayName} position confirmation timed out: target=${desiredPosition}%, current=${lastStatus.position}%`,
+      );
     }
   }
 

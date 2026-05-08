@@ -137,18 +137,38 @@ export class AirPurifierAccessory {
 
     if (this.state.mode === mode) {
       await this.setMode(AirPurifierMode.Stop);
+      return;
     }
+
+    this.platform.log.info(`${this.device.displayName} mode switch request ignored: ${this.formatMode(mode)} is not active`);
   }
 
   private async setMode(mode: AirPurifierMode): Promise<void> {
-    const token = await this.platform.client.getAirPurifierControlToken(this.device);
-    const response = await this.platform.client.changeAirPurifierMode(this.device, token, mode);
-    await this.waitForAcceptedChange(response, token);
+    this.platform.log.info(
+      `${this.device.displayName} mode request: target=${this.formatMode(mode)}, current=${this.formatMode(this.state.mode)}`,
+    );
 
-    this.applyModeState(mode);
-    this.confirmMode(mode).catch(error => {
-      this.platform.log.error(`${this.device.displayName} post-mode refresh failed: ${this.formatError(error)}`);
-    });
+    if (this.state.mode === mode) {
+      this.platform.log.info(`${this.device.displayName} mode request ignored: already ${this.formatMode(mode)}`);
+      return;
+    }
+
+    try {
+      const token = await this.platform.client.getAirPurifierControlToken(this.device);
+      const response = await this.platform.client.changeAirPurifierMode(this.device, token, mode);
+      this.platform.log.info(
+        `${this.device.displayName} mode request accepted: target=${this.formatMode(mode)}, acceptId=${response.acceptId ?? '-'}`,
+      );
+      await this.waitForAcceptedChange(response, token);
+
+      this.applyModeState(mode);
+      this.confirmMode(mode).catch(error => {
+        this.platform.log.error(`${this.device.displayName} post-mode refresh failed: ${this.formatError(error)}`);
+      });
+    } catch (error) {
+      this.platform.log.error(`${this.device.displayName} mode request failed: ${this.formatError(error)}`);
+      throw error;
+    }
   }
 
   private applyStatus(status: AirPurifierStatus): void {
@@ -320,15 +340,23 @@ export class AirPurifierAccessory {
   }
 
   private async confirmMode(mode: AirPurifierMode): Promise<void> {
+    let lastMode: AirPurifierMode | undefined;
+
     for (let count = 0; count < 10; count++) {
       await this.delay(1000);
       const status = await this.platform.client.getAirPurifierStatus(this.device, true);
       this.applyStatus(status);
+      lastMode = this.modeFromStatus(status.mode);
 
-      if (this.modeFromStatus(status.mode) === mode) {
+      if (lastMode === mode) {
+        this.platform.log.info(`${this.device.displayName} mode confirmed: ${this.formatMode(mode)}`);
         return;
       }
     }
+
+    this.platform.log.warn(
+      `${this.device.displayName} mode confirmation timed out: target=${this.formatMode(mode)}, current=${this.formatMode(lastMode)}`,
+    );
   }
 
   private delay(ms: number): Promise<void> {
@@ -337,5 +365,28 @@ export class AirPurifierAccessory {
 
   private formatError(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+  }
+
+  private formatMode(mode: AirPurifierMode | undefined): string {
+    switch (mode) {
+      case AirPurifierMode.Stop:
+        return 'stop';
+      case AirPurifierMode.Auto:
+        return 'auto';
+      case AirPurifierMode.Weak:
+        return 'weak';
+      case AirPurifierMode.Medium:
+        return 'medium';
+      case AirPurifierMode.Strong:
+        return 'strong';
+      case AirPurifierMode.Turbo:
+        return 'turbo';
+      case AirPurifierMode.Airy:
+        return 'airme';
+      case AirPurifierMode.Eco:
+        return 'eco';
+      default:
+        return 'unknown';
+    }
   }
 }
