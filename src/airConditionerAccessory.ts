@@ -496,6 +496,7 @@ export class AirConditionerAccessory {
 
   private configureTemperatureCharacteristic(characteristic: typeof this.platform.Characteristic.CoolingThresholdTemperature): void {
     this.service.getCharacteristic(characteristic)
+      .updateValue(this.state.targetTemperature)
       .setProps({
         minValue: this.state.minTemperature,
         maxValue: this.state.maxTemperature,
@@ -563,6 +564,7 @@ export class AirConditionerAccessory {
     service.getCharacteristic(this.platform.Characteristic.CurrentHumidifierDehumidifierState)
       .onGet(() => this.state.currentHumidifierDehumidifierState);
     service.getCharacteristic(this.platform.Characteristic.TargetHumidifierDehumidifierState)
+      .updateValue(this.state.targetHumidifierDehumidifierState)
       .setProps({ validValues })
       .onSet(this.setTargetHumidifierDehumidifierState.bind(this))
       .onGet(() => this.state.targetHumidifierDehumidifierState);
