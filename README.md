@@ -10,9 +10,18 @@
 
  A Homebridge platform plugin to control devices managed by a [Panasonic AiSEG2](https://www2.panasonic.biz/ls/densetsu/aiseg/) controller.
 
-This plugin is currently in a minimal but working state and supports the following AiSEG2 devices:
+This plugin supports the following AiSEG2 devices:
 
-* Panasonic Advance Series light switches
+* Panasonic Advance Series light switches as HomeKit Lightbulb accessories
+* AiSEG2 air conditioners as HomeKit Thermostat accessories
+* AiSEG2 shutters as HomeKit Window Covering accessories
+* AiSEG2 air purifiers as HomeKit Air Purifier accessories
+* AiSEG2 electric door locks as HomeKit Lock Mechanism accessories
+* AiSEG2 open/close and window lock sensors as HomeKit Contact Sensor accessories
+* AiSEG2 fire alarm registrations as HomeKit Smoke Sensor accessories
+
+Air conditioner support currently provides reliable power/status and temperature reporting. Advanced mode, target temperature, and fan
+setting writes need more controller-specific testing.
 
 All development and testing has been performed using an MKN704 controller. It is likely that the code will also work with the MKN705 and KMN713 controllers.
 
@@ -30,20 +39,13 @@ To configure the plugin the hostname or IP address of the controller will need t
 
 ## Future Development
 
-The current codebase was developed as a quick proof of concept and is likely not very well written so needs to be refactored.
+Additional AiSEG2 device classes may be added where HomeKit has a reasonable mapping:
 
-At a later date, support for the following additional AiSEG2 devices may be added where possible:
-
-* Air conditioners
-* Air purifiers
 * Call button alerts
 * Delivery box alerts
-* Door locks
 * EcoCute heat pump water systems
 * EV chargers
-* Fire alarm alerts
 * Gas hot water systems
 * Rangehoods
 * Under floor heaters
 * Window sashes
-* Window shutters
