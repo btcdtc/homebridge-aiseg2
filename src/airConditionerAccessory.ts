@@ -966,7 +966,7 @@ export class AirConditionerAccessory {
     return {
       minValue: 0,
       maxValue: 100,
-      minStep: validValues.length > 2 ? 100 / (validValues.length - 1) : 25,
+      minStep: validValues.length ? 1 : 25,
       validValues: validValues.length ? validValues : undefined,
     };
   }
