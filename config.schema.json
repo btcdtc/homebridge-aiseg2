@@ -45,7 +45,7 @@
         "title": "Group air conditioner sensors",
         "type": "boolean",
         "default": true,
-        "description": "Marks each thermostat as the primary HomeKit service and links its indoor humidity and outdoor temperature sensors to it."
+        "description": "Marks each air conditioner as the primary HomeKit service and links its indoor humidity, outdoor temperature, fan, humidity, and extra mode services to it."
       },
       "groupAirEnvironmentSensors": {
         "title": "Group air environment sensors",

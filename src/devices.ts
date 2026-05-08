@@ -52,10 +52,23 @@ export interface AirConditionerDevice extends Aiseg2Device {
   kind: 'airConditioner';
   state?: string;
   mode?: string;
+  modeLabel?: string;
+  fanMode?: string;
+  fanModeLabel?: string;
   currentTemperature?: number;
   targetTemperature?: number;
   currentHumidity?: number;
   outdoorTemperature?: number;
+  minTemperature?: number;
+  maxTemperature?: number;
+  availableModes?: AirConditionerControlOption[];
+  availableFanModes?: AirConditionerControlOption[];
+}
+
+export interface AirConditionerControlOption {
+  value: string;
+  label: string;
+  disabled: boolean;
 }
 
 export interface ShutterDevice extends Aiseg2Device {

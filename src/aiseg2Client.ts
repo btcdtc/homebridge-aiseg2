@@ -4,6 +4,7 @@ import { load as loadHtml } from 'cheerio';
 import {
   Aiseg2DeviceSummary,
   Aiseg2DeviceType,
+  AirConditionerControlOption,
   AirConditionerDevice,
   AirEnvironmentSensorDevice,
   AirPurifierDevice,
@@ -32,11 +33,47 @@ export interface LightingStatus {
 export interface AirConditionerStatus {
   state: string;
   mode: string;
+  modeLabel?: string;
+  fanMode?: string;
+  fanModeLabel?: string;
   active: boolean;
   currentTemperature?: number;
   targetTemperature?: number;
   currentHumidity?: number;
   outdoorTemperature?: number;
+}
+
+export enum AirConditionerMode {
+  Auto = '0x41',
+  Cool = '0x42',
+  Heat = '0x43',
+  Dry = '0x44',
+  Fan = '0x45',
+  Stop = '0x49',
+  Humidify = '0x4A',
+  HumidifyHeat = '0x4B',
+}
+
+export enum AirConditionerFanMode {
+  Auto = '0x41',
+  Level1 = '0x31',
+  Level2 = '0x32',
+  Level3 = '0x33',
+  Level4 = '0x34',
+  Level5 = '0x35',
+  Level6 = '0x36',
+  Level7 = '0x37',
+  Level8 = '0x38',
+}
+
+export interface AirConditionerCapabilities {
+  modes: AirConditionerControlOption[];
+  fanModes: AirConditionerControlOption[];
+  currentMode?: string;
+  currentFanMode?: string;
+  minTemperature?: number;
+  maxTemperature?: number;
+  targetTemperature?: number;
 }
 
 export interface ShutterStatus {
@@ -83,6 +120,10 @@ export interface OperationResponse {
   errorInfo?: string | number;
 }
 
+export interface AirConditionerOperationResponse extends OperationResponse {
+  token: string;
+}
+
 export type LightingChangeResponse = OperationResponse;
 
 export interface ShutterOperationResponse extends OperationResponse {
@@ -121,6 +162,22 @@ interface AirConditionerPanelData {
   inner?: string;
   outer?: string;
   humidity?: string;
+}
+
+interface AirConditionerModifyItem {
+  id_str?: string;
+  current?: {
+    value?: string;
+    value_str?: string;
+  };
+  after?: {
+    value?: string;
+    value_str?: string;
+  } | null;
+}
+
+interface AirConditionerDetailUpdateResponse extends AirConditionerPanelData {
+  modify_items?: AirConditionerModifyItem[];
 }
 
 interface ShutterPanelData {
@@ -227,7 +284,10 @@ const LIGHTING_CHECK_PATH = '/data/devices/device/32i1/check';
 const AIRCON_PAGE_PATH = '/page/devices/device/321?page=1&individual_page=1';
 const AIRCON_AUTO_UPDATE_PATH = '/data/devices/device/321/auto_update';
 const AIRCON_CHANGE_PATH = '/action/devices/device/321/change';
-const AIRCON_CHECK_PATH = '/action/devices/device/321/check';
+const AIRCON_DETAIL_PAGE_PATH = '/page/devices/device/3211';
+const AIRCON_DETAIL_UPDATE_PATH = '/data/devices/device/3211/update';
+const AIRCON_DETAIL_CHANGE_PATH = '/action/devices/device/3211/change';
+const AIRCON_DETAIL_CHECK_PATH = '/action/devices/device/3211/check';
 const SHUTTER_PAGE_PATH = '/page/devices/device/325?page=2';
 const SHUTTER_AUTO_UPDATE_PATH = '/data/devices/device/325/auto_update';
 const LOCKUP_PAGE_PATH = '/page/lockup/8';
@@ -252,6 +312,10 @@ export class Aiseg2Client {
   private lightingPanelInflight?: Promise<LightingPanelData[]>;
   private airConditionerPanelCache?: CachedValue<AirConditionerPanelData[]>;
   private airConditionerPanelInflight?: Promise<AirConditionerPanelData[]>;
+  private airConditionerCapabilitiesCache = new Map<string, CachedValue<AirConditionerCapabilities>>();
+  private airConditionerCapabilitiesInflight = new Map<string, Promise<AirConditionerCapabilities>>();
+  private airConditionerDetailCache = new Map<string, CachedValue<AirConditionerDetailUpdateResponse>>();
+  private airConditionerDetailInflight = new Map<string, Promise<AirConditionerDetailUpdateResponse>>();
   private lockupCache?: CachedValue<LockupStatusResponse>;
   private lockupInflight?: Promise<LockupStatusResponse>;
   private shutterCache?: CachedValue<ShutterPanelData[]>;
@@ -523,21 +587,52 @@ export class Aiseg2Client {
 
   async getAirConditionerStatus(device: AirConditionerDevice, force = false): Promise<AirConditionerStatus> {
     const statuses = await this.getAirConditionerPanelData(force);
-    const status = statuses.find(item => item.nodeId === device.nodeId && item.eoj === device.eoj);
+    const panelStatus = statuses.find(item => item.nodeId === device.nodeId && item.eoj === device.eoj);
 
-    if (!status) {
+    if (!panelStatus) {
       throw new Error(`AiSEG2 did not return air conditioner data for '${device.displayName}'`);
     }
 
+    const detailStatus = force
+      ? await this.getAirConditionerDetailStatus(device, true).catch(() => undefined)
+      : undefined;
+    const modeItem = this.airConditionerModifyItem(detailStatus, 's_item_mode');
+    const fanItem = this.airConditionerModifyItem(detailStatus, 's_img_ac');
+    const source = detailStatus || panelStatus;
+
     return {
-      state: status.state || '0x31',
-      mode: status.mode || '0x41',
-      active: status.state === '0x30',
-      currentTemperature: this.parseTemperature(status.inner),
-      targetTemperature: this.parseTemperature(status.temp),
-      currentHumidity: this.parseHumidity(status.humidity),
-      outdoorTemperature: this.parseTemperature(status.outer),
+      state: source.state || '0x31',
+      mode: source.mode || modeItem?.current?.value || AirConditionerMode.Auto,
+      modeLabel: this.cleanDeviceName(modeItem?.current?.value_str || source.state_str || ''),
+      fanMode: fanItem?.current?.value || undefined,
+      fanModeLabel: this.cleanDeviceName(fanItem?.current?.value_str || ''),
+      active: source.state === '0x30',
+      currentTemperature: this.parseTemperature(source.inner),
+      targetTemperature: this.parseTemperature(source.temp),
+      currentHumidity: this.parseHumidity(source.humidity),
+      outdoorTemperature: this.parseTemperature(source.outer),
     };
+  }
+
+  async getAirConditionerCapabilities(device: AirConditionerDevice, force = false): Promise<AirConditionerCapabilities> {
+    const key = this.airConditionerKey(device);
+    const now = Date.now();
+    const cached = this.airConditionerCapabilitiesCache.get(key);
+    if (!force && cached && cached.expiresAt > now) {
+      return cached.value;
+    }
+
+    const inflight = this.airConditionerCapabilitiesInflight.get(key);
+    if (!force && inflight) {
+      return inflight;
+    }
+
+    const request = this.fetchAirConditionerCapabilities(device, key, now).finally(() => {
+      this.airConditionerCapabilitiesInflight.delete(key);
+    });
+    this.airConditionerCapabilitiesInflight.set(key, request);
+
+    return request;
   }
 
   async getShutterStatus(device: ShutterDevice, force = false): Promise<ShutterStatus> {
@@ -707,6 +802,48 @@ export class Aiseg2Client {
     return response;
   }
 
+  async changeAirConditionerMode(
+    device: AirConditionerDevice,
+    mode: AirConditionerMode | string,
+  ): Promise<AirConditionerOperationResponse> {
+    return this.changeAirConditionerSetting(device, '1', mode);
+  }
+
+  async changeAirConditionerTemperature(
+    device: AirConditionerDevice,
+    temperature: number,
+  ): Promise<AirConditionerOperationResponse> {
+    return this.changeAirConditionerSetting(device, '2', String(Math.round(temperature)));
+  }
+
+  async changeAirConditionerFanMode(
+    device: AirConditionerDevice,
+    fanMode: AirConditionerFanMode | string,
+  ): Promise<AirConditionerOperationResponse> {
+    return this.changeAirConditionerSetting(device, '3', fanMode);
+  }
+
+  private async changeAirConditionerSetting(
+    device: AirConditionerDevice,
+    settingType: string,
+    value: string,
+  ): Promise<AirConditionerOperationResponse> {
+    const token = await this.prepareAirConditionerSetting(device, settingType, value);
+    const response = await this.postJson<OperationResponse>(AIRCON_DETAIL_CHANGE_PATH, {
+      ...this.airConditionerRequestParams(device),
+      token,
+    });
+    this.airConditionerPanelCache = undefined;
+    this.airConditionerPanelInflight = undefined;
+    this.airConditionerDetailCache.delete(this.airConditionerKey(device));
+    this.airConditionerDetailInflight.delete(this.airConditionerKey(device));
+
+    return {
+      ...response,
+      token,
+    };
+  }
+
   async changeShutterPosition(device: ShutterDevice, token: string, targetPosition: number): Promise<ShutterOperationResponse> {
     const command = this.shutterCommandForTarget(device, targetPosition);
     const operationPage = command === '3'
@@ -806,7 +943,7 @@ export class Aiseg2Client {
     device: AirConditionerDevice,
     token: string,
   ): Promise<CheckResult> {
-    const response = await this.postJson<{ result?: CheckResult }>(AIRCON_CHECK_PATH, {
+    const response = await this.postJson<{ result?: CheckResult }>(AIRCON_DETAIL_CHECK_PATH, {
       acceptId: String(acceptId),
       type: device.type,
       nodeId: device.nodeId,
@@ -931,6 +1068,77 @@ export class Aiseg2Client {
     };
 
     return value;
+  }
+
+  private async getAirConditionerDetailStatus(
+    device: AirConditionerDevice,
+    force = false,
+  ): Promise<AirConditionerDetailUpdateResponse> {
+    const key = this.airConditionerKey(device);
+    const now = Date.now();
+    const cached = this.airConditionerDetailCache.get(key);
+    if (!force && cached && cached.expiresAt > now) {
+      return cached.value;
+    }
+
+    const inflight = this.airConditionerDetailInflight.get(key);
+    if (!force && inflight) {
+      return inflight;
+    }
+
+    const request = this.fetchAirConditionerDetailStatus(device, key, now).finally(() => {
+      this.airConditionerDetailInflight.delete(key);
+    });
+    this.airConditionerDetailInflight.set(key, request);
+
+    return request;
+  }
+
+  private async fetchAirConditionerDetailStatus(
+    device: AirConditionerDevice,
+    key: string,
+    now: number,
+  ): Promise<AirConditionerDetailUpdateResponse> {
+    const value = await this.postJson<AirConditionerDetailUpdateResponse>(
+      AIRCON_DETAIL_UPDATE_PATH,
+      this.airConditionerRequestParams(device),
+    );
+
+    this.airConditionerDetailCache.set(key, {
+      value,
+      expiresAt: now + 5000,
+    });
+
+    return value;
+  }
+
+  private async fetchAirConditionerCapabilities(
+    device: AirConditionerDevice,
+    key: string,
+    now: number,
+  ): Promise<AirConditionerCapabilities> {
+    const [modeHtml, temperatureHtml, fanHtml] = await Promise.all([
+      this.requestText(this.airConditionerSettingPagePath(device, '32111')),
+      this.requestText(this.airConditionerSettingPagePath(device, '32112')),
+      this.requestText(this.airConditionerSettingPagePath(device, '32113')),
+    ]);
+    const temperaturePage = loadHtml(temperatureHtml);
+    const capabilities: AirConditionerCapabilities = {
+      modes: this.parseAirConditionerControlOptions(modeHtml),
+      fanModes: this.parseAirConditionerControlOptions(fanHtml),
+      currentMode: this.extractSettingValue(modeHtml),
+      currentFanMode: this.extractSettingValue(fanHtml),
+      minTemperature: this.parseTemperatureLimit(temperaturePage('#btn_minus').attr('temp_limit_min')),
+      maxTemperature: this.parseTemperatureLimit(temperaturePage('#btn_plus').attr('temp_limit_max')),
+      targetTemperature: this.parseTemperature(temperaturePage('#setting_value').attr('value')),
+    };
+
+    this.airConditionerCapabilitiesCache.set(key, {
+      value: capabilities,
+      expiresAt: now + 60 * 60 * 1000,
+    });
+
+    return capabilities;
   }
 
   private async getShutterPanelData(force = false): Promise<ShutterPanelData[]> {
@@ -1154,6 +1362,29 @@ export class Aiseg2Client {
     return value;
   }
 
+  private async prepareAirConditionerSetting(
+    device: AirConditionerDevice,
+    settingType: string,
+    value: string,
+  ): Promise<string> {
+    const requestParams = this.airConditionerRequestParams(device);
+    const html = await this.postFormText(this.airConditionerDetailPagePath(device), {
+      ...requestParams,
+      setting_type: settingType,
+      value,
+      request_by_form: '1',
+    });
+    const token = this.extractTokenFromHtml(html);
+
+    if (!this.airConditionerPreparedSettingMatched(html, settingType, value)) {
+      throw new Error(
+        `AiSEG2 did not stage air conditioner setting ${settingType}=${value} for '${device.displayName}'`,
+      );
+    }
+
+    return token;
+  }
+
   private async requestText(path: string, options: RequestOptions = {}): Promise<string> {
     return this.runQueuedRequest(async () => {
       const response = await httpRequest<string>(this.url(path), {
@@ -1199,8 +1430,31 @@ export class Aiseg2Client {
     return queued;
   }
 
+  private async postFormText(path: string, data: Record<string, string>): Promise<string> {
+    return this.runQueuedRequest(async () => {
+      const response = await httpRequest<string>(this.url(path), {
+        ...this.baseOptions(),
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        data: this.formFieldsPayload(data),
+        dataType: 'text',
+      });
+
+      this.assertSuccessfulResponse(path, response.status);
+      return response.data;
+    });
+  }
+
   private formPayload(data: unknown): string {
     return `data=${JSON.stringify(data)}`;
+  }
+
+  private formFieldsPayload(data: Record<string, string>): string {
+    return Object.entries(data)
+      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+      .join('&');
   }
 
   private lightingRequestDevice(device: LightingDevice): LightingDevice {
@@ -1214,6 +1468,35 @@ export class Aiseg2Client {
       deviceId: device.deviceId,
       uuidSeed: device.uuidSeed,
     };
+  }
+
+  private airConditionerRequestParams(device: AirConditionerDevice): Record<string, string> {
+    return {
+      nodeId: device.nodeId,
+      eoj: device.eoj,
+      type: device.type,
+      page: '1',
+      individual_page: '1',
+    };
+  }
+
+  private airConditionerDetailPagePath(device: AirConditionerDevice): string {
+    return `${AIRCON_DETAIL_PAGE_PATH}?${this.formFieldsPayload(this.airConditionerRequestParams(device))}`;
+  }
+
+  private airConditionerSettingPagePath(device: AirConditionerDevice, page: string): string {
+    return `${AIRCON_DETAIL_PAGE_PATH}/${page}?${this.formFieldsPayload(this.airConditionerRequestParams(device))}`;
+  }
+
+  private airConditionerKey(device: Pick<AirConditionerDevice, 'nodeId' | 'eoj'>): string {
+    return `${device.nodeId}:${device.eoj}`;
+  }
+
+  private airConditionerModifyItem(
+    status: AirConditionerDetailUpdateResponse | undefined,
+    id: string,
+  ): AirConditionerModifyItem | undefined {
+    return status?.modify_items?.find(item => item.id_str === id);
   }
 
   private url(path: string): string {
@@ -1296,6 +1579,56 @@ export class Aiseg2Client {
     return JSON.parse(match[1]) as T;
   }
 
+  private parseAirConditionerControlOptions(html: string): AirConditionerControlOption[] {
+    const $ = loadHtml(html);
+    const options: AirConditionerControlOption[] = [];
+
+    $('.radio').each((index, element) => {
+      const value = $(element).attr('value');
+      if (!value) {
+        return;
+      }
+
+      options.push({
+        value,
+        label: this.cleanDeviceName($(element).find('.button_text').text()),
+        disabled: ($(element).attr('class') || '').split(/\s+/).includes('disable'),
+      });
+    });
+
+    return options;
+  }
+
+  private extractSettingValue(html: string): string | undefined {
+    const $ = loadHtml(html);
+    const setting = $('#setting_value');
+
+    return setting.is('input')
+      ? setting.attr('value')
+      : setting.text().trim() || undefined;
+  }
+
+  private airConditionerPreparedSettingMatched(html: string, settingType: string, value: string): boolean {
+    const modifyItems = this.extractScriptVariable<AirConditionerModifyItem[]>(html, 'modify_items');
+    const expectedId = this.airConditionerModifyItemId(settingType);
+    const staged = modifyItems.find(item => item.id_str === expectedId);
+
+    return staged?.after?.value === value;
+  }
+
+  private airConditionerModifyItemId(settingType: string): string {
+    switch (settingType) {
+      case '1':
+        return 's_item_mode';
+      case '2':
+        return 's_item_temp';
+      case '3':
+        return 's_img_ac';
+      default:
+        return '';
+    }
+  }
+
   private extractAirEnvironmentDeviceNames(html: string): Map<string, string> {
     const $ = loadHtml(html);
     const names = new Map<string, string>();
@@ -1367,12 +1700,23 @@ export class Aiseg2Client {
       return undefined;
     }
 
+    if (/^0x[0-9a-f]+$/i.test(value)) {
+      const temperature = Number.parseInt(value, 16);
+      return temperature >= 0 && temperature <= 50 ? temperature : undefined;
+    }
+
     const match = value.replace(/<br\s*\/?>/gi, ' ').match(/(-?\d+(?:\.\d+)?)/);
     if (!match) {
       return undefined;
     }
 
     return Number(match[1]);
+  }
+
+  private parseTemperatureLimit(value: string | undefined): number | undefined {
+    const temperature = Number(value);
+
+    return Number.isFinite(temperature) ? temperature : undefined;
   }
 
   private parseHumidity(value: string | undefined): number | undefined {
