@@ -86,29 +86,31 @@ export class AirConditionerAccessory {
     }, 30000);
   }
 
-  async updateStatus(): Promise<void> {
-    const status = await this.platform.client.getAirConditionerStatus(this.device);
+  async updateStatus(force = false): Promise<void> {
+    const status = await this.platform.client.getAirConditionerStatus(this.device, force);
     this.applyStatus(status);
   }
 
   async setTargetHeatingCoolingState(value: CharacteristicValue): Promise<void> {
     const targetState = Number(value);
     const desiredActive = targetState !== this.platform.Characteristic.TargetHeatingCoolingState.OFF;
-    const status = await this.platform.client.getAirConditionerStatus(this.device);
+    const status = await this.platform.client.getAirConditionerStatus(this.device, true);
 
     if (status.active !== desiredActive) {
+      this.state.targetHeatingCoolingState = targetState;
+      this.service.updateCharacteristic(this.platform.Characteristic.TargetHeatingCoolingState, targetState);
+
       const token = await this.platform.client.getAirConditionerControlToken();
       const response = await this.platform.client.changeAirConditionerPower(this.device, token, status);
       await this.waitForAcceptedChange(response, token);
+
+      this.confirmPowerState(desiredActive).catch(error => {
+        this.platform.log.error(`${this.device.displayName} post-power refresh failed: ${this.formatError(error)}`);
+      });
+      return;
     }
 
-    const updatedStatus = await this.platform.client.getAirConditionerStatus(this.device);
-    this.applyStatus({
-      ...updatedStatus,
-      mode: desiredActive ? updatedStatus.mode : '0x41',
-      state: desiredActive ? '0x30' : '0x31',
-      active: desiredActive,
-    });
+    this.applyStatus(status);
   }
 
   async setTargetTemperature(value: CharacteristicValue): Promise<void> {
@@ -157,6 +159,24 @@ export class AirConditionerAccessory {
     if (this.state.currentHumidity !== undefined) {
       this.service.updateCharacteristic(this.platform.Characteristic.CurrentRelativeHumidity, this.state.currentHumidity);
     }
+    this.applySupplementalServices(this.state.currentHumidity, this.state.outdoorTemperature);
+  }
+
+  private applyMeasurements(status: AirConditionerStatus): void {
+    if (status.currentTemperature !== undefined) {
+      this.state.currentTemperature = status.currentTemperature;
+      this.service.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, this.state.currentTemperature);
+    }
+
+    if (status.currentHumidity !== undefined) {
+      this.state.currentHumidity = status.currentHumidity;
+      this.service.updateCharacteristic(this.platform.Characteristic.CurrentRelativeHumidity, this.state.currentHumidity);
+    }
+
+    if (status.outdoorTemperature !== undefined) {
+      this.state.outdoorTemperature = status.outdoorTemperature;
+    }
+
     this.applySupplementalServices(this.state.currentHumidity, this.state.outdoorTemperature);
   }
 
@@ -243,6 +263,27 @@ export class AirConditionerAccessory {
     }
 
     throw new Error(`Timed out waiting for '${this.device.displayName}' to update`);
+  }
+
+  private async confirmPowerState(desiredActive: boolean): Promise<void> {
+    let lastStatus: AirConditionerStatus | undefined;
+
+    for (let count = 0; count < 12; count++) {
+      await this.delay(1000);
+      const status = await this.platform.client.getAirConditionerStatus(this.device, true);
+      lastStatus = status;
+
+      if (status.active === desiredActive) {
+        this.applyStatus(status);
+        return;
+      }
+
+      this.applyMeasurements(status);
+    }
+
+    if (lastStatus) {
+      this.applyStatus(lastStatus);
+    }
   }
 
   private delay(ms: number): Promise<void> {

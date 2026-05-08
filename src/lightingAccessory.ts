@@ -85,8 +85,8 @@ export class LightingAccessory {
   }
 
   // Fetch the current state of an AiSEG2 lighting device
-  async updateLightingState(): Promise<void> {
-    if (this.States.BlockUpdate >= 1) {
+  async updateLightingState(force = false): Promise<void> {
+    if (!force && this.States.BlockUpdate >= 1) {
       this.States.BlockUpdate--;
       return;
     }
@@ -98,7 +98,7 @@ export class LightingAccessory {
     this.States.UpdatingState = true;
     const deviceData = this.accessory.context.device;
     try {
-      const status = await this.platform.client.getLightingStatus(deviceData);
+      const status = await this.platform.client.getLightingStatus(deviceData, force);
       this.updateHomeKitState(deviceData, status);
     } finally {
       this.States.UpdatingState = false;
@@ -167,6 +167,9 @@ export class LightingAccessory {
         this.States.BlockUpdate = 2;
 
         this.platform.log.info(`${deviceData.displayName} switched ${requestedState ? 'ON' : 'OFF'}`);
+        this.confirmLightingState({ state: requestedState }).catch(error => {
+          this.platform.log.error(`${deviceData.displayName} post-update refresh failed: ${this.formatError(error)}`);
+        });
       } else {
         throw new Error(`${deviceData.displayName} update submission failed: ${JSON.stringify(response)}`);
       }
@@ -224,6 +227,9 @@ export class LightingAccessory {
         this.States.BlockUpdate = 2;
 
         this.platform.log.info(`${deviceData.displayName} brightness set to ${brightness}%`);
+        this.confirmLightingState({ state: true, brightness }).catch(error => {
+          this.platform.log.error(`${deviceData.displayName} post-brightness refresh failed: ${this.formatError(error)}`);
+        });
       } else {
         throw new Error(`${deviceData.displayName} brightness update failed: ${JSON.stringify(response)}`);
       }
@@ -260,6 +266,35 @@ export class LightingAccessory {
     const acceptId = Number(response.acceptId);
     if (Number.isInteger(acceptId)) {
       return this.checkStatus(acceptId);
+    }
+
+    return true;
+  }
+
+  private async confirmLightingState(expected: Partial<LightingStatus>): Promise<void> {
+    const deviceData = this.accessory.context.device;
+
+    for (let count = 0; count < 6; count++) {
+      await this.delay(750);
+      const status = await this.platform.client.getLightingStatus(deviceData, true);
+      this.updateHomeKitState(deviceData, status);
+
+      if (this.lightingStatusMatches(status, expected)) {
+        this.States.BlockUpdate = 0;
+        return;
+      }
+    }
+
+    this.States.BlockUpdate = 0;
+  }
+
+  private lightingStatusMatches(status: LightingStatus, expected: Partial<LightingStatus>): boolean {
+    if (expected.state !== undefined && status.state !== expected.state) {
+      return false;
+    }
+
+    if (expected.brightness !== undefined && status.brightness !== expected.brightness) {
+      return false;
     }
 
     return true;

@@ -254,6 +254,8 @@ export class Aiseg2Client {
   private shutterInflight?: Promise<ShutterPanelData[]>;
   private smokeCache = new Map<string, CachedValue<FireAlarmPageData>>();
   private smokeInflight = new Map<string, Promise<FireAlarmPageData>>();
+  private airPurifierCache = new Map<string, CachedValue<AirPurifierPageData>>();
+  private airPurifierInflight = new Map<string, Promise<AirPurifierPageData>>();
   private airEnvironmentDeviceCache?: CachedValue<AirEnvironmentSensorDevice[]>;
   private airEnvironmentStatusCache?: CachedValue<Map<string, AirEnvironmentStatus>>;
   private airEnvironmentStatusInflight?: Promise<Map<string, AirEnvironmentStatus>>;
@@ -490,8 +492,8 @@ export class Aiseg2Client {
     return devices;
   }
 
-  async getLightingStatus(device: LightingDevice): Promise<LightingStatus> {
-    const statuses = await this.getLightingPanelData();
+  async getLightingStatus(device: LightingDevice, force = false): Promise<LightingStatus> {
+    const statuses = await this.getLightingPanelData(force);
     const panel = statuses.find(item => item.deviceId === device.deviceId) ||
       statuses.find(item => item.nodeId === device.nodeId && item.eoj === device.eoj);
     if (!panel) {
@@ -514,8 +516,8 @@ export class Aiseg2Client {
     return status;
   }
 
-  async getAirConditionerStatus(device: AirConditionerDevice): Promise<AirConditionerStatus> {
-    const statuses = await this.getAirConditionerPanelData();
+  async getAirConditionerStatus(device: AirConditionerDevice, force = false): Promise<AirConditionerStatus> {
+    const statuses = await this.getAirConditionerPanelData(force);
     const status = statuses.find(item => item.nodeId === device.nodeId && item.eoj === device.eoj);
 
     if (!status) {
@@ -533,8 +535,8 @@ export class Aiseg2Client {
     };
   }
 
-  async getShutterStatus(device: ShutterDevice): Promise<ShutterStatus> {
-    const statuses = await this.getShutterPanelData();
+  async getShutterStatus(device: ShutterDevice, force = false): Promise<ShutterStatus> {
+    const statuses = await this.getShutterPanelData(force);
     const status = statuses.find(item => item.nodeId === device.nodeId && item.eoj === device.eoj);
 
     if (!status) {
@@ -549,8 +551,8 @@ export class Aiseg2Client {
     };
   }
 
-  async getAirPurifierStatus(device: AirPurifierDevice): Promise<AirPurifierStatus> {
-    const page = await this.getAirPurifierPageData(device);
+  async getAirPurifierStatus(device: AirPurifierDevice, force = false): Promise<AirPurifierStatus> {
+    const page = await this.getAirPurifierPageData(device, force);
     const mode = page.airclean?.mode || '0x40';
 
     return {
@@ -661,8 +663,7 @@ export class Aiseg2Client {
     onoff: string,
     modulate: string,
   ): Promise<LightingChangeResponse> {
-    this.lightingPanelCache = undefined;
-    return this.postJson<LightingChangeResponse>(LIGHTING_CHANGE_PATH, {
+    const response = await this.postJson<LightingChangeResponse>(LIGHTING_CHANGE_PATH, {
       token,
       nodeId: device.nodeId,
       eoj: device.eoj,
@@ -672,6 +673,10 @@ export class Aiseg2Client {
         modulate,
       },
     });
+    this.lightingPanelCache = undefined;
+    this.lightingPanelInflight = undefined;
+
+    return response;
   }
 
   async changeAirConditionerPower(
@@ -679,20 +684,23 @@ export class Aiseg2Client {
     token: string,
     status: AirConditionerStatus,
   ): Promise<OperationResponse> {
-    this.airConditionerPanelCache = undefined;
-    return this.postJson<OperationResponse>(AIRCON_CHANGE_PATH, {
+    const response = await this.postJson<OperationResponse>(AIRCON_CHANGE_PATH, {
       token,
       nodeId: device.nodeId,
       eoj: device.eoj,
       type: device.type,
       state: status.state,
     });
+    this.airConditionerPanelCache = undefined;
+    this.airConditionerPanelInflight = undefined;
+
+    return response;
   }
 
   async changeShutterPosition(device: ShutterDevice, token: string, targetPosition: number): Promise<OperationResponse> {
     const open = targetPosition >= 50 ? '0' : '1';
 
-    return this.postJson<OperationResponse>(SHUTTER_OPERATION_PATH, {
+    const response = await this.postJson<OperationResponse>(SHUTTER_OPERATION_PATH, {
       token,
       objSendData: JSON.stringify({
         nodeId: device.nodeId,
@@ -703,10 +711,14 @@ export class Aiseg2Client {
         },
       }),
     });
+    this.shutterCache = undefined;
+    this.shutterInflight = undefined;
+
+    return response;
   }
 
   async stopShutter(device: ShutterDevice, token: string): Promise<OperationResponse> {
-    return this.postJson<OperationResponse>(SHUTTER_OPERATION_PATH, {
+    const response = await this.postJson<OperationResponse>(SHUTTER_OPERATION_PATH, {
       token,
       objSendData: JSON.stringify({
         nodeId: device.nodeId,
@@ -717,10 +729,14 @@ export class Aiseg2Client {
         },
       }),
     });
+    this.shutterCache = undefined;
+    this.shutterInflight = undefined;
+
+    return response;
   }
 
   async changeAirPurifierMode(device: AirPurifierDevice, token: string, mode: string): Promise<OperationResponse> {
-    return this.postJson<OperationResponse>(AIR_PURIFIER_OPERATION_PATH, {
+    const response = await this.postJson<OperationResponse>(AIR_PURIFIER_OPERATION_PATH, {
       token,
       objSendData: JSON.stringify({
         nodeId: device.nodeId,
@@ -731,6 +747,10 @@ export class Aiseg2Client {
         },
       }),
     });
+    this.airPurifierCache.delete(this.airPurifierKey(device));
+    this.airPurifierInflight.delete(this.airPurifierKey(device));
+
+    return response;
   }
 
   async changeDoorLock(device: DoorLockDevice, token: string, status: DoorLockStatus): Promise<OperationResponse> {
@@ -738,14 +758,17 @@ export class Aiseg2Client {
       throw new Error(`AiSEG2 did not return a door lock command for '${device.displayName}'`);
     }
 
-    this.lockupCache = undefined;
-    return this.postJson<OperationResponse>(LOCKUP_CHANGE_PATH, {
+    const response = await this.postJson<OperationResponse>(LOCKUP_CHANGE_PATH, {
       token,
       nodeId: device.nodeId,
       eoj: device.eoj,
       type: device.type,
       state: status.statecmd,
     });
+    this.lockupCache = undefined;
+    this.lockupInflight = undefined;
+
+    return response;
   }
 
   async checkLightingChange(acceptId: number): Promise<CheckResult> {
@@ -931,12 +954,39 @@ export class Aiseg2Client {
     return panelData;
   }
 
-  private async getAirPurifierPageData(device: AirPurifierDevice): Promise<AirPurifierPageData> {
+  private async getAirPurifierPageData(device: AirPurifierDevice, force = false): Promise<AirPurifierPageData> {
+    const key = this.airPurifierKey(device);
+    const now = Date.now();
+    const cached = this.airPurifierCache.get(key);
+    if (!force && cached && cached.expiresAt > now) {
+      return cached.value;
+    }
+
+    const inflight = this.airPurifierInflight.get(key);
+    if (!force && inflight) {
+      return inflight;
+    }
+
+    const request = this.fetchAirPurifierPageData(device, key, now).finally(() => {
+      this.airPurifierInflight.delete(key);
+    });
+    this.airPurifierInflight.set(key, request);
+
+    return request;
+  }
+
+  private async fetchAirPurifierPageData(device: AirPurifierDevice, key: string, now: number): Promise<AirPurifierPageData> {
     const html = await this.requestText(
       `/page/devices/device/327?track=32&page=2&nodeid=${device.nodeId}&eoj=${device.eoj}&devtype=${device.type}`,
     );
 
-    return this.extractInitArgument<AirPurifierPageData>(html, 0);
+    const value = this.extractInitArgument<AirPurifierPageData>(html, 0);
+    this.airPurifierCache.set(key, {
+      value,
+      expiresAt: now + 5000,
+    });
+
+    return value;
   }
 
   private async getAirEnvironmentDeviceData(): Promise<AirEnvironmentDeviceData[]> {
@@ -1274,6 +1324,10 @@ export class Aiseg2Client {
 
   private airEnvironmentDeviceKey(device: Pick<AirEnvironmentDeviceData, 'nodeId' | 'eoj' | 'type'>): string {
     return `${device.nodeId || ''}:${device.eoj || ''}:${device.type || ''}`;
+  }
+
+  private airPurifierKey(device: Pick<AirPurifierDevice, 'nodeId' | 'eoj' | 'type'>): string {
+    return `${device.nodeId}:${device.eoj}:${device.type}`;
   }
 
   private airEnvironmentUuidSuffix(displayName: string): string {

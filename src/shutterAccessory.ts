@@ -54,8 +54,8 @@ export class ShutterAccessory {
     }, 30000);
   }
 
-  async updateStatus(): Promise<void> {
-    const status = await this.platform.client.getShutterStatus(this.device);
+  async updateStatus(force = false): Promise<void> {
+    const status = await this.platform.client.getShutterStatus(this.device, force);
     this.applyStatus(status);
   }
 
@@ -81,12 +81,10 @@ export class ShutterAccessory {
     const response = await this.platform.client.changeShutterPosition(this.device, token, targetPosition);
     await this.waitForAcceptedChange(response, token);
 
-    this.state.currentPosition = targetPosition >= 50 ? 100 : 0;
-    this.state.targetPosition = this.state.currentPosition;
-    this.state.positionState = this.platform.Characteristic.PositionState.STOPPED;
-    this.service.updateCharacteristic(this.platform.Characteristic.CurrentPosition, this.state.currentPosition);
-    this.service.updateCharacteristic(this.platform.Characteristic.TargetPosition, this.state.targetPosition);
-    this.service.updateCharacteristic(this.platform.Characteristic.PositionState, this.state.positionState);
+    const desiredPosition = targetPosition >= 50 ? 100 : 0;
+    this.confirmTargetPosition(desiredPosition).catch(error => {
+      this.platform.log.error(`${this.device.displayName} post-position refresh failed: ${this.formatError(error)}`);
+    });
   }
 
   async holdPosition(value: CharacteristicValue): Promise<void> {
@@ -100,6 +98,9 @@ export class ShutterAccessory {
 
     this.state.positionState = this.platform.Characteristic.PositionState.STOPPED;
     this.service.updateCharacteristic(this.platform.Characteristic.PositionState, this.state.positionState);
+    this.updateStatus(true).catch(error => {
+      this.platform.log.error(`${this.device.displayName} post-stop refresh failed: ${this.formatError(error)}`);
+    });
   }
 
   private applyStatus(status: ShutterStatus): void {
@@ -122,6 +123,11 @@ export class ShutterAccessory {
     }
 
     return 50;
+  }
+
+  private updateCurrentPosition(status: ShutterStatus): void {
+    this.state.currentPosition = status.position;
+    this.service.updateCharacteristic(this.platform.Characteristic.CurrentPosition, this.state.currentPosition);
   }
 
   private async waitForAcceptedChange(response: OperationResponse, token: string): Promise<void> {
@@ -148,6 +154,27 @@ export class ShutterAccessory {
     }
 
     throw new Error(`Timed out waiting for '${this.device.displayName}' to update`);
+  }
+
+  private async confirmTargetPosition(desiredPosition: number): Promise<void> {
+    let lastStatus: ShutterStatus | undefined;
+
+    for (let count = 0; count < 30; count++) {
+      await this.delay(1000);
+      const status = await this.platform.client.getShutterStatus(this.device, true);
+      lastStatus = status;
+
+      if (status.position === desiredPosition) {
+        this.applyStatus(status);
+        return;
+      }
+
+      this.updateCurrentPosition(status);
+    }
+
+    if (lastStatus) {
+      this.applyStatus(lastStatus);
+    }
   }
 
   private delay(ms: number): Promise<void> {

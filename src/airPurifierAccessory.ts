@@ -103,8 +103,8 @@ export class AirPurifierAccessory {
     }, 30000);
   }
 
-  async updateStatus(): Promise<void> {
-    const status = await this.platform.client.getAirPurifierStatus(this.device);
+  async updateStatus(force = false): Promise<void> {
+    const status = await this.platform.client.getAirPurifierStatus(this.device, force);
     this.applyStatus(status);
   }
 
@@ -145,12 +145,9 @@ export class AirPurifierAccessory {
     const response = await this.platform.client.changeAirPurifierMode(this.device, token, mode);
     await this.waitForAcceptedChange(response, token);
 
-    const status = await this.platform.client.getAirPurifierStatus(this.device);
-    this.applyStatus({
-      ...status,
-      mode,
-      state: mode === AirPurifierMode.Stop ? '0x31' : '0x30',
-      active: mode !== AirPurifierMode.Stop,
+    this.applyModeState(mode);
+    this.confirmMode(mode).catch(error => {
+      this.platform.log.error(`${this.device.displayName} post-mode refresh failed: ${this.formatError(error)}`);
     });
   }
 
@@ -174,6 +171,26 @@ export class AirPurifierAccessory {
     this.updateAirQualityService(this.smellService, status.smellLevel);
     this.updateAirQualityService(this.pm25Service, status.pm25Level);
     this.updateAirQualityService(this.dustService, status.dustLevel);
+    this.updateModeSwitches();
+  }
+
+  private applyModeState(mode: AirPurifierMode): void {
+    this.state.active = mode === AirPurifierMode.Stop
+      ? this.platform.Characteristic.Active.INACTIVE
+      : this.platform.Characteristic.Active.ACTIVE;
+    this.state.currentState = mode === AirPurifierMode.Stop
+      ? this.platform.Characteristic.CurrentAirPurifierState.INACTIVE
+      : this.platform.Characteristic.CurrentAirPurifierState.PURIFYING_AIR;
+    this.state.targetState = this.isAutomaticMode(mode)
+      ? this.platform.Characteristic.TargetAirPurifierState.AUTO
+      : this.platform.Characteristic.TargetAirPurifierState.MANUAL;
+    this.state.rotationSpeed = this.rotationSpeedFromMode(mode);
+    this.state.mode = mode;
+
+    this.service.updateCharacteristic(this.platform.Characteristic.Active, this.state.active);
+    this.service.updateCharacteristic(this.platform.Characteristic.CurrentAirPurifierState, this.state.currentState);
+    this.service.updateCharacteristic(this.platform.Characteristic.TargetAirPurifierState, this.state.targetState);
+    this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, this.state.rotationSpeed);
     this.updateModeSwitches();
   }
 
@@ -300,6 +317,18 @@ export class AirPurifierAccessory {
     }
 
     throw new Error(`Timed out waiting for '${this.device.displayName}' to update`);
+  }
+
+  private async confirmMode(mode: AirPurifierMode): Promise<void> {
+    for (let count = 0; count < 10; count++) {
+      await this.delay(1000);
+      const status = await this.platform.client.getAirPurifierStatus(this.device, true);
+      this.applyStatus(status);
+
+      if (this.modeFromStatus(status.mode) === mode) {
+        return;
+      }
+    }
   }
 
   private delay(ms: number): Promise<void> {
