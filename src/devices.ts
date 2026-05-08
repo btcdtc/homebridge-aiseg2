@@ -62,6 +62,7 @@ export interface ShutterDevice extends Aiseg2Device {
   kind: 'shutter';
   state?: string;
   openState?: string;
+  shutterType?: string;
   condition?: string;
 }
 

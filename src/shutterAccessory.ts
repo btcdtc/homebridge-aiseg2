@@ -1,6 +1,6 @@
 import { CharacteristicValue, PlatformAccessory, Service } from 'homebridge';
 
-import { CheckResult, OperationResponse, ShutterStatus } from './aiseg2Client';
+import { CheckResult, ShutterOperationResponse, ShutterStatus } from './aiseg2Client';
 import { ShutterDevice } from './devices';
 import { Aiseg2Platform } from './platform';
 
@@ -68,7 +68,7 @@ export class ShutterAccessory {
       throw new Error(`Invalid shutter target position '${value}'`);
     }
 
-    const targetPosition = requestedPosition >= 50 ? 100 : 0;
+    const targetPosition = this.normalizeTargetPosition(requestedPosition);
     if (this.pendingTargetPosition !== undefined) {
       this.applyPendingPosition(this.state.currentPosition, this.pendingTargetPosition);
       this.platform.log.warn(
@@ -183,7 +183,7 @@ export class ShutterAccessory {
     this.service.updateCharacteristic(this.platform.Characteristic.PositionState, this.state.positionState);
   }
 
-  private async waitForAcceptedChange(response: OperationResponse, token: string): Promise<void> {
+  private async waitForAcceptedChange(response: ShutterOperationResponse, token: string): Promise<void> {
     if (response.result !== undefined && String(response.result) !== CheckResult.OK) {
       throw new Error(`${this.device.displayName} update submission failed: ${JSON.stringify(response)}`);
     }
@@ -195,7 +195,7 @@ export class ShutterAccessory {
 
     for (let count = 0; count < 10; count++) {
       await this.delay(1000);
-      const result = await this.platform.client.checkShutterChange(acceptId, this.device, token);
+      const result = await this.platform.client.checkShutterChange(acceptId, this.device, token, response.operationPage);
 
       if (result === CheckResult.OK) {
         return;
@@ -244,6 +244,22 @@ export class ShutterAccessory {
     throw new Error(
       `position confirmation timed out: target=${desiredPosition}%, current=${lastStatus?.position ?? 'unknown'}%`,
     );
+  }
+
+  private normalizeTargetPosition(requestedPosition: number): number {
+    if (requestedPosition <= 0) {
+      return 0;
+    }
+
+    if (requestedPosition >= 100) {
+      return 100;
+    }
+
+    if (this.platform.client.supportsShutterHalfOpen(this.device)) {
+      return 50;
+    }
+
+    return requestedPosition >= 50 ? 100 : 0;
   }
 
   private beginPendingPosition(desiredPosition: number): number {

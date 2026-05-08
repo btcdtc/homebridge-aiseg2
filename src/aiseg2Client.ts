@@ -84,6 +84,10 @@ export interface OperationResponse {
 
 export type LightingChangeResponse = OperationResponse;
 
+export interface ShutterOperationResponse extends OperationResponse {
+  operationPage: string;
+}
+
 interface LightingPanelData {
   id?: string | number;
   nodeId?: string;
@@ -223,8 +227,6 @@ const AIRCON_AUTO_UPDATE_PATH = '/data/devices/device/321/auto_update';
 const AIRCON_CHANGE_PATH = '/action/devices/device/321/change';
 const AIRCON_CHECK_PATH = '/action/devices/device/321/check';
 const SHUTTER_PAGE_PATH = '/page/devices/device/325?page=2';
-const SHUTTER_OPERATION_PATH = '/action/devices/device/325/operation';
-const SHUTTER_STATUS_PATH = '/action/devices/device/325/get_operation_status';
 const SHUTTER_AUTO_UPDATE_PATH = '/data/devices/device/325/auto_update';
 const LOCKUP_PAGE_PATH = '/page/lockup/8';
 const LOCKUP_AUTO_UPDATE_PATH = '/data/lockup/8/auto_update';
@@ -355,6 +357,7 @@ export class Aiseg2Client {
       }),
       state: data.state,
       openState: data.shutter?.openState,
+      shutterType: data.shutter?.type,
       condition: data.condition,
     }));
   }
@@ -621,6 +624,10 @@ export class Aiseg2Client {
     return this.getPageToken(SHUTTER_PAGE_PATH);
   }
 
+  supportsShutterHalfOpen(device: ShutterDevice): boolean {
+    return this.shutterDetailOperationPage(device) !== undefined;
+  }
+
   async getAirPurifierControlToken(device: AirPurifierDevice): Promise<string> {
     return this.getPageToken(
       `/page/devices/device/327?track=32&page=2&nodeid=${device.nodeId}&eoj=${device.eoj}&devtype=${device.type}`,
@@ -697,28 +704,36 @@ export class Aiseg2Client {
     return response;
   }
 
-  async changeShutterPosition(device: ShutterDevice, token: string, targetPosition: number): Promise<OperationResponse> {
-    const open = targetPosition >= 50 ? '0' : '1';
+  async changeShutterPosition(device: ShutterDevice, token: string, targetPosition: number): Promise<ShutterOperationResponse> {
+    const command = this.shutterCommandForTarget(device, targetPosition);
+    const operationPage = command === '3'
+      ? this.shutterDetailOperationPage(device) || '325'
+      : '325';
+    const response = await this.postShutterOperation(device, token, command, operationPage);
 
-    const response = await this.postJson<OperationResponse>(SHUTTER_OPERATION_PATH, {
-      token,
-      objSendData: JSON.stringify({
-        nodeId: device.nodeId,
-        eoj: device.eoj,
-        type: device.type,
-        device: {
-          open,
-        },
-      }),
-    });
-    this.shutterCache = undefined;
-    this.shutterInflight = undefined;
-
-    return response;
+    return {
+      ...response,
+      operationPage,
+    };
   }
 
-  async stopShutter(device: ShutterDevice, token: string): Promise<OperationResponse> {
-    const response = await this.postJson<OperationResponse>(SHUTTER_OPERATION_PATH, {
+  async stopShutter(device: ShutterDevice, token: string): Promise<ShutterOperationResponse> {
+    const operationPage = '325';
+    const response = await this.postShutterOperation(device, token, '2', operationPage);
+
+    return {
+      ...response,
+      operationPage,
+    };
+  }
+
+  private async postShutterOperation(
+    device: ShutterDevice,
+    token: string,
+    open: string,
+    operationPage: string,
+  ): Promise<OperationResponse> {
+    const response = await this.postJson<OperationResponse>(`/action/devices/device/${operationPage}/operation`, {
       token,
       objSendData: JSON.stringify({
         nodeId: device.nodeId,
@@ -796,8 +811,13 @@ export class Aiseg2Client {
     return this.requireCheckResult(response.result, acceptId);
   }
 
-  async checkShutterChange(acceptId: number, device: ShutterDevice, token: string): Promise<CheckResult> {
-    const response = await this.postJson<{ result?: CheckResult }>(SHUTTER_STATUS_PATH, {
+  async checkShutterChange(
+    acceptId: number,
+    device: ShutterDevice,
+    token: string,
+    operationPage = '325',
+  ): Promise<CheckResult> {
+    const response = await this.postJson<{ result?: CheckResult }>(`/action/devices/device/${operationPage}/get_operation_status`, {
       acceptId: String(acceptId),
       type: device.type,
       token,
@@ -1405,6 +1425,46 @@ export class Aiseg2Client {
 
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  private shutterCommandForTarget(device: ShutterDevice, targetPosition: number): string {
+    if (targetPosition <= 0) {
+      return '1';
+    }
+
+    if (targetPosition >= 100) {
+      return '0';
+    }
+
+    return this.supportsShutterHalfOpen(device) ? '3' : '0';
+  }
+
+  private shutterDetailOperationPage(device: ShutterDevice): string | undefined {
+    if (device.type === '0x42') {
+      return undefined;
+    }
+
+    const shutterType = Number.parseInt(device.shutterType || '', 16);
+    switch (shutterType) {
+      case 0x1010:
+      case 0x2010:
+      case 0x4010:
+        return '3251';
+      case 0x1011:
+      case 0x2011:
+      case 0x2111:
+      case 0x4011:
+        return '3252';
+      case 0x1012:
+      case 0x2012:
+      case 0x2112:
+      case 0x3111:
+      case 0x3112:
+      case 0x4012:
+        return '3253';
+      default:
+        return undefined;
+    }
   }
 
   private shutterPosition(data: ShutterPanelData): number {
