@@ -137,18 +137,11 @@ export class AirConditionerAccessory {
         const token = await this.platform.client.getAirConditionerControlToken();
         const response = await this.platform.client.changeAirConditionerPower(this.device, token, status);
         this.platform.log.info(`${this.device.displayName} power request accepted: acceptId=${response.acceptId ?? '-'}`);
-        await this.waitForAcceptedChange(response, token);
-
-        this.confirmPowerState(actionId, desiredActive).catch(error => {
-          this.clearPendingPowerState(actionId);
-          this.platform.log.error(`${this.device.displayName} post-power refresh failed: ${this.formatError(error)}`);
-          this.updateStatus(true).catch(refreshError => {
-            this.platform.log.error(`${this.device.displayName} post-power recovery refresh failed: ${this.formatError(refreshError)}`);
-          });
-        }).finally(() => {
+        this.monitorPowerAction(actionId, desiredActive, response, token);
+        if (this.queuedPowerTarget) {
           this.clearPendingPowerState(actionId);
           this.runQueuedPowerTarget();
-        });
+        }
       } catch (error) {
         this.clearPendingPowerState(actionId);
         await this.updateStatus(true);
@@ -160,6 +153,42 @@ export class AirConditionerAccessory {
 
     this.applyStatus(status);
     this.platform.log.info(`${this.device.displayName} power request ignored: already ${this.formatActive(desiredActive)}`);
+  }
+
+  private monitorPowerAction(
+    actionId: number,
+    desiredActive: boolean,
+    response: OperationResponse,
+    token: string,
+  ): void {
+    void this.confirmAcceptedPowerAction(actionId, desiredActive, response, token).catch(error => {
+      this.clearPendingPowerState(actionId);
+      this.platform.log.error(`${this.device.displayName} post-power refresh failed: ${this.formatError(error)}`);
+      this.updateStatus(true).catch(refreshError => {
+        this.platform.log.error(`${this.device.displayName} post-power recovery refresh failed: ${this.formatError(refreshError)}`);
+      });
+    }).finally(() => {
+      this.clearPendingPowerState(actionId);
+      this.runQueuedPowerTarget();
+    });
+  }
+
+  private async confirmAcceptedPowerAction(
+    actionId: number,
+    desiredActive: boolean,
+    response: OperationResponse,
+    token: string,
+  ): Promise<void> {
+    await this.waitForAcceptedChange(response, token);
+    if (actionId !== this.powerActionSequence) {
+      return;
+    }
+
+    if (this.queuedPowerTarget) {
+      return;
+    }
+
+    await this.confirmPowerState(actionId, desiredActive);
   }
 
   async setTargetTemperature(value: CharacteristicValue): Promise<void> {
@@ -349,17 +378,17 @@ export class AirConditionerAccessory {
     let lastStatus: AirConditionerStatus | undefined;
 
     for (let count = 0; count < 12; count++) {
-      if (actionId !== this.powerActionSequence) {
+      if (actionId !== this.powerActionSequence || this.queuedPowerTarget) {
         return;
       }
 
       await this.delay(1000);
-      if (actionId !== this.powerActionSequence) {
+      if (actionId !== this.powerActionSequence || this.queuedPowerTarget) {
         return;
       }
 
       const status = await this.platform.client.getAirConditionerStatus(this.device, true);
-      if (actionId !== this.powerActionSequence) {
+      if (actionId !== this.powerActionSequence || this.queuedPowerTarget) {
         return;
       }
 

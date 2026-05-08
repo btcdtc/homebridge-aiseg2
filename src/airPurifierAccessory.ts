@@ -184,19 +184,13 @@ export class AirPurifierAccessory {
       this.platform.log.info(
         `${this.device.displayName} mode request accepted: target=${this.formatMode(mode)}, acceptId=${response.acceptId ?? '-'}`,
       );
-      await this.waitForAcceptedChange(response, token);
 
       this.applyModeState(mode);
-      this.confirmMode(actionId, mode).catch(error => {
-        this.clearPendingMode(actionId);
-        this.platform.log.error(`${this.device.displayName} post-mode refresh failed: ${this.formatError(error)}`);
-        this.updateStatus(true).catch(refreshError => {
-          this.platform.log.error(`${this.device.displayName} post-mode recovery refresh failed: ${this.formatError(refreshError)}`);
-        });
-      }).finally(() => {
+      this.monitorModeAction(actionId, mode, response, token);
+      if (this.queuedMode !== undefined) {
         this.clearPendingMode(actionId);
         this.runQueuedMode();
-      });
+      }
     } catch (error) {
       this.clearPendingMode(actionId);
       this.platform.log.error(`${this.device.displayName} mode request failed: ${this.formatError(error)}`);
@@ -204,6 +198,42 @@ export class AirPurifierAccessory {
       this.runQueuedMode();
       throw error;
     }
+  }
+
+  private monitorModeAction(
+    actionId: number,
+    mode: AirPurifierMode,
+    response: OperationResponse,
+    token: string,
+  ): void {
+    void this.confirmAcceptedModeAction(actionId, mode, response, token).catch(error => {
+      this.clearPendingMode(actionId);
+      this.platform.log.error(`${this.device.displayName} post-mode refresh failed: ${this.formatError(error)}`);
+      this.updateStatus(true).catch(refreshError => {
+        this.platform.log.error(`${this.device.displayName} post-mode recovery refresh failed: ${this.formatError(refreshError)}`);
+      });
+    }).finally(() => {
+      this.clearPendingMode(actionId);
+      this.runQueuedMode();
+    });
+  }
+
+  private async confirmAcceptedModeAction(
+    actionId: number,
+    mode: AirPurifierMode,
+    response: OperationResponse,
+    token: string,
+  ): Promise<void> {
+    await this.waitForAcceptedChange(response, token);
+    if (actionId !== this.modeActionSequence) {
+      return;
+    }
+
+    if (this.queuedMode !== undefined) {
+      return;
+    }
+
+    await this.confirmMode(actionId, mode);
   }
 
   private applyStatus(status: AirPurifierStatus): void {
@@ -402,17 +432,17 @@ export class AirPurifierAccessory {
     let lastMode: AirPurifierMode | undefined;
 
     for (let count = 0; count < 10; count++) {
-      if (actionId !== this.modeActionSequence) {
+      if (actionId !== this.modeActionSequence || this.queuedMode !== undefined) {
         return;
       }
 
       await this.delay(1000);
-      if (actionId !== this.modeActionSequence) {
+      if (actionId !== this.modeActionSequence || this.queuedMode !== undefined) {
         return;
       }
 
       const status = await this.platform.client.getAirPurifierStatus(this.device, true);
-      if (actionId !== this.modeActionSequence) {
+      if (actionId !== this.modeActionSequence || this.queuedMode !== undefined) {
         return;
       }
 

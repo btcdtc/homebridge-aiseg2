@@ -246,22 +246,10 @@ export class LightingAccessory {
         `${deviceData.displayName} ${this.formatLightingActionAccepted(action, response)}`,
       );
 
-      const result = await this.waitForAcceptedChange(response);
-      if (result !== true) {
-        throw new Error(`${deviceData.displayName} update submission failed: ${JSON.stringify(response)}`);
-      }
-
-      if (this.actionQueue.hasQueued) {
-        this.platform.log.info(
-          `${deviceData.displayName} ${this.formatLightingActionSkipped(action)}: newer request is queued`,
-        );
-        return;
-      }
-
       this.applyPendingLightingState(deviceData, expected);
       this.States.BlockUpdate = 2;
       this.platform.log.info(`${deviceData.displayName} ${this.formatLightingActionComplete(action)}`);
-      await this.confirmLightingState(actionId, expected, action);
+      this.monitorLightingAction(actionId, expected, action, response);
     } catch (error) {
       this.clearPendingLightingState(actionId);
       this.States.BlockUpdate = 2;
@@ -271,6 +259,44 @@ export class LightingAccessory {
       });
       throw error;
     }
+  }
+
+  private monitorLightingAction(
+    actionId: number,
+    expected: Partial<LightingStatus>,
+    action: LightingAction,
+    response: LightingChangeResponse,
+  ): void {
+    void this.confirmAcceptedLightingAction(actionId, expected, action, response).catch(error => {
+      this.clearPendingLightingState(actionId);
+      this.States.BlockUpdate = 2;
+      this.platform.log.error(
+        `${this.accessory.context.device.displayName} post-action confirmation failed: ${this.formatError(error)}`,
+      );
+      this.updateLightingState(true).catch(refreshError => {
+        this.platform.log.error(
+          `${this.accessory.context.device.displayName} post-action recovery refresh failed: ${this.formatError(refreshError)}`,
+        );
+      });
+    });
+  }
+
+  private async confirmAcceptedLightingAction(
+    actionId: number,
+    expected: Partial<LightingStatus>,
+    action: LightingAction,
+    response: LightingChangeResponse,
+  ): Promise<void> {
+    const result = await this.waitForAcceptedChange(response);
+    if (actionId !== this.lightingActionSequence || this.actionQueue.hasQueued) {
+      return;
+    }
+
+    if (result !== true) {
+      throw new Error(`${this.accessory.context.device.displayName} update submission failed: ${JSON.stringify(response)}`);
+    }
+
+    await this.confirmLightingState(actionId, expected, action);
   }
 
   private updateHomeKitState(deviceData: LightingDevice, status: LightingStatus): void {

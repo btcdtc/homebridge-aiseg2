@@ -115,24 +115,53 @@ export class ShutterAccessory {
         `${this.device.displayName} position request accepted: target=${targetPosition}%, ` +
         `command=${response.command}, page=${response.operationPage}, acceptId=${response.acceptId ?? '-'}`,
       );
-      await this.waitForAcceptedChange(response, token);
-
-      this.confirmTargetPosition(actionId, targetPosition).catch(error => {
-        this.clearPendingPosition(actionId);
-        this.platform.log.error(`${this.device.displayName} post-position refresh failed: ${this.formatError(error)}`);
-        this.updateStatus(true).catch(refreshError => {
-          this.platform.log.error(`${this.device.displayName} post-position recovery refresh failed: ${this.formatError(refreshError)}`);
-        });
-      }).finally(() => {
+      this.monitorPositionAction(actionId, targetPosition, response, token);
+      if (this.queuedTargetPosition !== undefined) {
         this.clearPendingPosition(actionId);
         this.runQueuedTargetPosition();
-      });
+      }
     } catch (error) {
       this.clearPendingPosition(actionId);
       await this.updateStatus(true);
       this.runQueuedTargetPosition();
       throw error;
     }
+  }
+
+  private monitorPositionAction(
+    actionId: number,
+    targetPosition: number,
+    response: ShutterOperationResponse,
+    token: string,
+  ): void {
+    void this.confirmAcceptedPositionAction(actionId, targetPosition, response, token).catch(error => {
+      this.clearPendingPosition(actionId);
+      this.platform.log.error(`${this.device.displayName} post-position refresh failed: ${this.formatError(error)}`);
+      this.updateStatus(true).catch(refreshError => {
+        this.platform.log.error(`${this.device.displayName} post-position recovery refresh failed: ${this.formatError(refreshError)}`);
+      });
+    }).finally(() => {
+      this.clearPendingPosition(actionId);
+      this.runQueuedTargetPosition();
+    });
+  }
+
+  private async confirmAcceptedPositionAction(
+    actionId: number,
+    targetPosition: number,
+    response: ShutterOperationResponse,
+    token: string,
+  ): Promise<void> {
+    await this.waitForAcceptedChange(response, token);
+    if (actionId !== this.positionActionSequence) {
+      return;
+    }
+
+    if (this.queuedTargetPosition !== undefined) {
+      return;
+    }
+
+    await this.confirmTargetPosition(actionId, targetPosition);
   }
 
   async holdPosition(value: CharacteristicValue): Promise<void> {
@@ -237,17 +266,17 @@ export class ShutterAccessory {
     let lastStatus: ShutterStatus | undefined;
 
     for (let count = 0; count < 30; count++) {
-      if (actionId !== this.positionActionSequence) {
+      if (actionId !== this.positionActionSequence || this.queuedTargetPosition !== undefined) {
         return;
       }
 
       await this.delay(1000);
-      if (actionId !== this.positionActionSequence) {
+      if (actionId !== this.positionActionSequence || this.queuedTargetPosition !== undefined) {
         return;
       }
 
       const status = await this.platform.client.getShutterStatus(this.device, true);
-      if (actionId !== this.positionActionSequence) {
+      if (actionId !== this.positionActionSequence || this.queuedTargetPosition !== undefined) {
         return;
       }
 
