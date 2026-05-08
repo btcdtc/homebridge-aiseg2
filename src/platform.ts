@@ -4,6 +4,7 @@ import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 import { AirConditionerAccessory } from './airConditionerAccessory';
 import { AirPurifierAccessory } from './airPurifierAccessory';
 import { ContactSensorAccessory } from './contactSensorAccessory';
+import { DoorLockAccessory } from './doorLockAccessory';
 import { LightingAccessory } from './lightingAccessory';
 import { ShutterAccessory } from './shutterAccessory';
 import { SmokeSensorAccessory } from './smokeSensorAccessory';
@@ -49,6 +50,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     await this.discoverAirConditioners();
     await this.discoverShutters();
     await this.discoverAirPurifiers();
+    await this.discoverDoorLocks();
   }
 
   provisionDevice(device: SupportedDevice) {
@@ -158,6 +160,16 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     }
   }
 
+  async discoverDoorLocks(): Promise<void> {
+    this.log.debug('Fetching door locks from AiSEG2');
+    const devices = await this.client.getDoorLockDevices();
+
+    for (const device of devices) {
+      this.log.info(`Discovered door lock '${device.displayName}'`);
+      this.provisionDevice(device);
+    }
+  }
+
   private createAccessoryHandler(kind: SupportedDeviceKind, accessory: PlatformAccessory): void {
     switch (kind) {
       case 'lighting':
@@ -177,6 +189,9 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
         break;
       case 'airPurifier':
         new AirPurifierAccessory(this, accessory);
+        break;
+      case 'doorLock':
+        new DoorLockAccessory(this, accessory);
         break;
       default:
         this.log.warn(`No HomeKit handler registered for AiSEG2 device kind '${kind}'`);
