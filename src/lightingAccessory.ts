@@ -1,21 +1,8 @@
 import { Service, PlatformAccessory, CharacteristicValue } from 'homebridge';
 
 import { CheckResult, LightingChangeResponse, LightingStatus } from './aiseg2Client';
+import { LightingDevice } from './devices';
 import { Aiseg2Platform } from './platform';
-
-
-export interface LightingDevice {
-    displayName: string;
-    nodeId: string;
-    eoj: string;
-    type: string;
-    nodeIdentNum: string;
-    deviceId: string;
-    disable?: string;
-    state?: string;
-    dimmable?: boolean;
-    brightness?: number;
-}
 
 enum LightState {
   On = '0x30',

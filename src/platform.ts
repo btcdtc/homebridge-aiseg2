@@ -1,8 +1,11 @@
 import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic } from 'homebridge';
 
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
-import { LightingDevice, LightingAccessory } from './lightingAccessory';
+import { ContactSensorAccessory } from './contactSensorAccessory';
+import { LightingAccessory } from './lightingAccessory';
+import { SmokeSensorAccessory } from './smokeSensorAccessory';
 import { Aiseg2Client } from './aiseg2Client';
+import { LightingDevice, SupportedDevice, SupportedDeviceKind } from './devices';
 
 
 export class Aiseg2Platform implements DynamicPlatformPlugin {
@@ -38,10 +41,12 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   // Discover the various AiSEG2 device types that are compatible with Homekit
   async discoverDevices(): Promise<void> {
     await this.discoverLighting();
+    await this.discoverContactSensors();
+    await this.discoverSmokeSensors();
   }
 
-  provisionDevice(device: LightingDevice) {
-    const uuid = this.api.hap.uuid.generate(device.deviceId);
+  provisionDevice(device: SupportedDevice) {
+    const uuid = this.api.hap.uuid.generate(device.uuidSeed);
     const existingAccessory = this.accessories.find(accessory => accessory.UUID === uuid);
     const homeKitName = this.formatHomeKitName(device.displayName);
 
@@ -49,17 +54,19 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       this.log.info('Restoring existing accessory from cache:', existingAccessory.displayName);
 
       existingAccessory.context.device = device;
+      existingAccessory.context.kind = device.kind;
       if (existingAccessory.displayName !== homeKitName) {
         existingAccessory.updateDisplayName(homeKitName);
       }
       this.api.updatePlatformAccessories([existingAccessory]);
 
-      new LightingAccessory(this, existingAccessory);
+      this.createAccessoryHandler(device.kind, existingAccessory);
     } else {
       this.log.info('Adding new accessory:', device.displayName);
       const accessory = new this.api.platformAccessory(homeKitName, uuid);
       accessory.context.device = device;
-      new LightingAccessory(this, accessory);
+      accessory.context.kind = device.kind;
+      this.createAccessoryHandler(device.kind, accessory);
       this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
       this.accessories.push(accessory);
     }
@@ -95,6 +102,43 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     this.provisionDevice(deviceData);
   }
 
+  async discoverContactSensors(): Promise<void> {
+    this.log.debug('Fetching contact sensors from AiSEG2');
+    const devices = await this.client.getContactSensorDevices();
+
+    for (const device of devices) {
+      this.log.info(`Discovered contact sensor '${device.displayName}'`);
+      this.provisionDevice(device);
+    }
+  }
+
+  async discoverSmokeSensors(): Promise<void> {
+    this.log.debug('Fetching smoke sensors from AiSEG2');
+    const devices = await this.client.getSmokeSensorDevices();
+
+    for (const device of devices) {
+      this.log.info(`Discovered smoke sensor '${device.displayName}'`);
+      this.provisionDevice(device);
+    }
+  }
+
+  private createAccessoryHandler(kind: SupportedDeviceKind, accessory: PlatformAccessory): void {
+    switch (kind) {
+      case 'lighting':
+        new LightingAccessory(this, accessory);
+        break;
+      case 'contactSensor':
+        new ContactSensorAccessory(this, accessory);
+        break;
+      case 'smokeSensor':
+        new SmokeSensorAccessory(this, accessory);
+        break;
+      default:
+        this.log.warn(`No HomeKit handler registered for AiSEG2 device kind '${kind}'`);
+        break;
+    }
+  }
+
   private formatError(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
   }
@@ -107,6 +151,6 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       .trim()
       .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
 
-    return sanitizedName || 'AiSEG2 Light';
+    return sanitizedName || 'AiSEG2 Device';
   }
 }
