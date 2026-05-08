@@ -1,8 +1,11 @@
 import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic } from 'homebridge';
 
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
+import { AirConditionerAccessory } from './airConditionerAccessory';
+import { AirPurifierAccessory } from './airPurifierAccessory';
 import { ContactSensorAccessory } from './contactSensorAccessory';
 import { LightingAccessory } from './lightingAccessory';
+import { ShutterAccessory } from './shutterAccessory';
 import { SmokeSensorAccessory } from './smokeSensorAccessory';
 import { Aiseg2Client } from './aiseg2Client';
 import { LightingDevice, SupportedDevice, SupportedDeviceKind } from './devices';
@@ -43,6 +46,9 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     await this.discoverLighting();
     await this.discoverContactSensors();
     await this.discoverSmokeSensors();
+    await this.discoverAirConditioners();
+    await this.discoverShutters();
+    await this.discoverAirPurifiers();
   }
 
   provisionDevice(device: SupportedDevice) {
@@ -122,6 +128,36 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     }
   }
 
+  async discoverAirConditioners(): Promise<void> {
+    this.log.debug('Fetching air conditioners from AiSEG2');
+    const devices = await this.client.getAirConditionerDevices();
+
+    for (const device of devices) {
+      this.log.info(`Discovered air conditioner '${device.displayName}'`);
+      this.provisionDevice(device);
+    }
+  }
+
+  async discoverShutters(): Promise<void> {
+    this.log.debug('Fetching shutters from AiSEG2');
+    const devices = await this.client.getShutterDevices();
+
+    for (const device of devices) {
+      this.log.info(`Discovered shutter '${device.displayName}'`);
+      this.provisionDevice(device);
+    }
+  }
+
+  async discoverAirPurifiers(): Promise<void> {
+    this.log.debug('Fetching air purifiers from AiSEG2');
+    const devices = await this.client.getAirPurifierDevices();
+
+    for (const device of devices) {
+      this.log.info(`Discovered air purifier '${device.displayName}'`);
+      this.provisionDevice(device);
+    }
+  }
+
   private createAccessoryHandler(kind: SupportedDeviceKind, accessory: PlatformAccessory): void {
     switch (kind) {
       case 'lighting':
@@ -132,6 +168,15 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
         break;
       case 'smokeSensor':
         new SmokeSensorAccessory(this, accessory);
+        break;
+      case 'airConditioner':
+        new AirConditionerAccessory(this, accessory);
+        break;
+      case 'shutter':
+        new ShutterAccessory(this, accessory);
+        break;
+      case 'airPurifier':
+        new AirPurifierAccessory(this, accessory);
         break;
       default:
         this.log.warn(`No HomeKit handler registered for AiSEG2 device kind '${kind}'`);

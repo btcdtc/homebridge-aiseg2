@@ -181,6 +181,7 @@ const LIGHTING_PAGE_PATH = '/page/devices/device/32i1?page=1';
 const LIGHTING_AUTO_UPDATE_PATH = '/data/devices/device/32i1/auto_update';
 const LIGHTING_CHANGE_PATH = '/action/devices/device/32i1/change';
 const LIGHTING_CHECK_PATH = '/data/devices/device/32i1/check';
+const AIRCON_PAGE_PATH = '/page/devices/device/321?page=1&individual_page=1';
 const AIRCON_AUTO_UPDATE_PATH = '/data/devices/device/321/auto_update';
 const AIRCON_CHANGE_PATH = '/action/devices/device/321/change';
 const AIRCON_CHECK_PATH = '/action/devices/device/321/check';
@@ -482,6 +483,24 @@ export class Aiseg2Client {
 
   async getControlToken(): Promise<string> {
     return this.getPageToken(LIGHTING_PAGE_PATH);
+  }
+
+  async getAirConditionerControlToken(): Promise<string> {
+    return this.getPageToken(AIRCON_PAGE_PATH);
+  }
+
+  async getShutterControlToken(): Promise<string> {
+    return this.getPageToken(SHUTTER_PAGE_PATH);
+  }
+
+  async getAirPurifierControlToken(device: AirPurifierDevice): Promise<string> {
+    return this.getPageToken(
+      `/page/devices/device/327?track=32&page=2&nodeid=${device.nodeId}&eoj=${device.eoj}&devtype=${device.type}`,
+    );
+  }
+
+  async getDoorLockControlToken(): Promise<string> {
+    return this.getPageToken(LOCKUP_PAGE_PATH);
   }
 
   async getPageToken(path: string): Promise<string> {
@@ -808,7 +827,14 @@ export class Aiseg2Client {
 
   private lightingRequestDevice(device: LightingDevice): LightingDevice {
     return {
-      ...device,
+      kind: device.kind,
+      displayName: device.displayName,
+      nodeId: device.nodeId,
+      eoj: device.eoj,
+      type: device.type,
+      nodeIdentNum: device.nodeIdentNum,
+      deviceId: device.deviceId,
+      uuidSeed: device.uuidSeed,
     };
   }
 
