@@ -41,6 +41,8 @@ export class AirPurifierAccessory {
   private readonly dustService: Service;
   private readonly modeSwitchServices = new Map<AirPurifierMode, Service>();
   private readonly device: AirPurifierDevice;
+  private pendingMode?: AirPurifierMode;
+  private modeActionSequence = 0;
 
   private state = {
     active: 0,
@@ -148,10 +150,21 @@ export class AirPurifierAccessory {
       `${this.device.displayName} mode request: target=${this.formatMode(mode)}, current=${this.formatMode(this.state.mode)}`,
     );
 
+    if (this.pendingMode !== undefined) {
+      this.applyModeState(this.pendingMode);
+      this.platform.log.warn(
+        `${this.device.displayName} mode request ignored while ${this.formatMode(this.pendingMode)} is still pending`,
+      );
+      return;
+    }
+
     if (this.state.mode === mode) {
       this.platform.log.info(`${this.device.displayName} mode request ignored: already ${this.formatMode(mode)}`);
       return;
     }
+
+    const actionId = this.beginPendingMode(mode);
+    this.applyModeState(mode);
 
     try {
       const token = await this.platform.client.getAirPurifierControlToken(this.device);
@@ -162,16 +175,31 @@ export class AirPurifierAccessory {
       await this.waitForAcceptedChange(response, token);
 
       this.applyModeState(mode);
-      this.confirmMode(mode).catch(error => {
+      this.confirmMode(actionId, mode).catch(error => {
+        this.clearPendingMode(actionId);
         this.platform.log.error(`${this.device.displayName} post-mode refresh failed: ${this.formatError(error)}`);
+        this.updateStatus(true).catch(refreshError => {
+          this.platform.log.error(`${this.device.displayName} post-mode recovery refresh failed: ${this.formatError(refreshError)}`);
+        });
+      }).finally(() => {
+        this.clearPendingMode(actionId);
       });
     } catch (error) {
+      this.clearPendingMode(actionId);
       this.platform.log.error(`${this.device.displayName} mode request failed: ${this.formatError(error)}`);
+      await this.updateStatus(true);
       throw error;
     }
   }
 
   private applyStatus(status: AirPurifierStatus): void {
+    const actualMode = this.modeFromStatus(status.mode);
+    if (this.pendingMode !== undefined && actualMode !== this.pendingMode) {
+      this.updateAirQualityServices(status);
+      this.applyModeState(this.pendingMode);
+      return;
+    }
+
     this.state.active = status.active
       ? this.platform.Characteristic.Active.ACTIVE
       : this.platform.Characteristic.Active.INACTIVE;
@@ -188,9 +216,7 @@ export class AirPurifierAccessory {
     this.service.updateCharacteristic(this.platform.Characteristic.CurrentAirPurifierState, this.state.currentState);
     this.service.updateCharacteristic(this.platform.Characteristic.TargetAirPurifierState, this.state.targetState);
     this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, this.state.rotationSpeed);
-    this.updateAirQualityService(this.smellService, status.smellLevel);
-    this.updateAirQualityService(this.pm25Service, status.pm25Level);
-    this.updateAirQualityService(this.dustService, status.dustLevel);
+    this.updateAirQualityServices(status);
     this.updateModeSwitches();
   }
 
@@ -290,6 +316,12 @@ export class AirPurifierAccessory {
     }
   }
 
+  private updateAirQualityServices(status: AirPurifierStatus): void {
+    this.updateAirQualityService(this.smellService, status.smellLevel);
+    this.updateAirQualityService(this.pm25Service, status.pm25Level);
+    this.updateAirQualityService(this.dustService, status.dustLevel);
+  }
+
   private updateAirQualityService(service: Service, level: number | undefined): void {
     service.updateCharacteristic(this.platform.Characteristic.AirQuality, this.airQualityFromLevel(level));
   }
@@ -339,24 +371,49 @@ export class AirPurifierAccessory {
     throw new Error(`Timed out waiting for '${this.device.displayName}' to update`);
   }
 
-  private async confirmMode(mode: AirPurifierMode): Promise<void> {
+  private async confirmMode(actionId: number, mode: AirPurifierMode): Promise<void> {
     let lastMode: AirPurifierMode | undefined;
 
     for (let count = 0; count < 10; count++) {
+      if (actionId !== this.modeActionSequence) {
+        return;
+      }
+
       await this.delay(1000);
+      if (actionId !== this.modeActionSequence) {
+        return;
+      }
+
       const status = await this.platform.client.getAirPurifierStatus(this.device, true);
-      this.applyStatus(status);
+      if (actionId !== this.modeActionSequence) {
+        return;
+      }
+
       lastMode = this.modeFromStatus(status.mode);
 
       if (lastMode === mode) {
+        this.applyStatus(status);
         this.platform.log.info(`${this.device.displayName} mode confirmed: ${this.formatMode(mode)}`);
         return;
       }
+
+      this.updateAirQualityServices(status);
+      this.applyModeState(mode);
     }
 
-    this.platform.log.warn(
-      `${this.device.displayName} mode confirmation timed out: target=${this.formatMode(mode)}, current=${this.formatMode(lastMode)}`,
-    );
+    throw new Error(`mode confirmation timed out: target=${this.formatMode(mode)}, current=${this.formatMode(lastMode)}`);
+  }
+
+  private beginPendingMode(mode: AirPurifierMode): number {
+    const actionId = ++this.modeActionSequence;
+    this.pendingMode = mode;
+    return actionId;
+  }
+
+  private clearPendingMode(actionId: number): void {
+    if (actionId === this.modeActionSequence) {
+      this.pendingMode = undefined;
+    }
   }
 
   private delay(ms: number): Promise<void> {

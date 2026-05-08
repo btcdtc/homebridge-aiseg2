@@ -21,6 +21,9 @@ export class LightingAccessory {
     UpdatingState: false,
   };
 
+  private pendingLightingState?: Partial<LightingStatus>;
+  private lightingActionSequence = 0;
+
   constructor(
     private readonly platform: Aiseg2Platform,
     private readonly accessory: PlatformAccessory,
@@ -144,6 +147,12 @@ export class LightingAccessory {
     const requestedState = Boolean(value);
     const deviceData = this.accessory.context.device;
 
+    if (this.pendingLightingState?.state === requestedState) {
+      this.applyPendingLightingState(deviceData, this.pendingLightingState);
+      this.platform.log.warn(`${deviceData.displayName} power request ignored while ${requestedState ? 'ON' : 'OFF'} is still pending`);
+      return;
+    }
+
     if (requestedState === this.States.On) {
       this.platform.log.info(`${deviceData.displayName} power request ignored: already ${requestedState ? 'ON' : 'OFF'}`);
       return;
@@ -155,6 +164,7 @@ export class LightingAccessory {
 
     this.States.BlockUpdate = 10;
     this.platform.log.info(`${deviceData.displayName} power request: ${requestedState ? 'ON' : 'OFF'}`);
+    const actionId = this.beginPendingLightingState({ state: requestedState });
 
     try {
       await this.ensureControlToken();
@@ -164,21 +174,27 @@ export class LightingAccessory {
       const result = await this.waitForAcceptedChange(response);
 
       if (result === true) {
-        this.service.updateCharacteristic(this.platform.Characteristic.On, requestedState);
-
-        this.States.On = requestedState;
+        this.applyPendingLightingState(deviceData, { state: requestedState });
         this.States.BlockUpdate = 2;
 
         this.platform.log.info(`${deviceData.displayName} switched ${requestedState ? 'ON' : 'OFF'}`);
-        this.confirmLightingState({ state: requestedState }).catch(error => {
+        this.confirmLightingState(actionId, { state: requestedState }).catch(error => {
+          this.clearPendingLightingState(actionId);
           this.platform.log.error(`${deviceData.displayName} post-update refresh failed: ${this.formatError(error)}`);
+          this.updateLightingState(true).catch(refreshError => {
+            this.platform.log.error(`${deviceData.displayName} post-update recovery refresh failed: ${this.formatError(refreshError)}`);
+          });
         });
       } else {
         throw new Error(`${deviceData.displayName} update submission failed: ${JSON.stringify(response)}`);
       }
     } catch (error) {
+      this.clearPendingLightingState(actionId);
       this.States.BlockUpdate = 2;
       this.platform.log.error(`${deviceData.displayName} state update failed: ${this.formatError(error)}`);
+      this.updateLightingState(true).catch(refreshError => {
+        this.platform.log.error(`${deviceData.displayName} post-failure refresh failed: ${this.formatError(refreshError)}`);
+      });
       throw error;
     }
   }
@@ -210,8 +226,15 @@ export class LightingAccessory {
     }
 
     const brightness = this.normalizeBrightness(value);
+    if (this.pendingLightingState?.state === true && this.pendingLightingState.brightness === brightness) {
+      this.applyPendingLightingState(deviceData, this.pendingLightingState);
+      this.platform.log.warn(`${deviceData.displayName} brightness request ignored while ${brightness}% is still pending`);
+      return;
+    }
+
     this.States.BlockUpdate = 10;
     this.platform.log.info(`${deviceData.displayName} brightness request: ${brightness}%`);
+    const actionId = this.beginPendingLightingState({ state: true, brightness });
 
     try {
       await this.ensureControlToken();
@@ -226,28 +249,37 @@ export class LightingAccessory {
       const result = await this.waitForAcceptedChange(response);
 
       if (result === true) {
-        this.service.updateCharacteristic(this.platform.Characteristic.On, true);
-        this.service.updateCharacteristic(this.platform.Characteristic.Brightness, brightness);
-
-        this.States.On = true;
-        this.States.Brightness = brightness;
+        this.applyPendingLightingState(deviceData, { state: true, brightness });
         this.States.BlockUpdate = 2;
 
         this.platform.log.info(`${deviceData.displayName} brightness set to ${brightness}%`);
-        this.confirmLightingState({ state: true, brightness }).catch(error => {
+        this.confirmLightingState(actionId, { state: true, brightness }).catch(error => {
+          this.clearPendingLightingState(actionId);
           this.platform.log.error(`${deviceData.displayName} post-brightness refresh failed: ${this.formatError(error)}`);
+          this.updateLightingState(true).catch(refreshError => {
+            this.platform.log.error(`${deviceData.displayName} post-brightness recovery refresh failed: ${this.formatError(refreshError)}`);
+          });
         });
       } else {
         throw new Error(`${deviceData.displayName} brightness update failed: ${JSON.stringify(response)}`);
       }
     } catch (error) {
+      this.clearPendingLightingState(actionId);
       this.States.BlockUpdate = 2;
       this.platform.log.error(`${deviceData.displayName} brightness update failed: ${this.formatError(error)}`);
+      this.updateLightingState(true).catch(refreshError => {
+        this.platform.log.error(`${deviceData.displayName} post-brightness failure refresh failed: ${this.formatError(refreshError)}`);
+      });
       throw error;
     }
   }
 
   private updateHomeKitState(deviceData: LightingDevice, status: LightingStatus): void {
+    if (this.pendingLightingState && !this.lightingStatusMatches(status, this.pendingLightingState)) {
+      this.applyPendingLightingState(deviceData, this.pendingLightingState, status);
+      return;
+    }
+
     if (status.state !== this.States.On) {
       this.States.On = status.state;
       this.platform.log.info(`${deviceData.displayName} state changed to ${status.state ? 'ON' : 'OFF'}`);
@@ -260,6 +292,24 @@ export class LightingAccessory {
         this.platform.log.info(`${deviceData.displayName} brightness changed to ${this.States.Brightness}%`);
       }
       this.service.updateCharacteristic(this.platform.Characteristic.Brightness, this.States.Brightness);
+    }
+  }
+
+  private applyPendingLightingState(
+    deviceData: LightingDevice,
+    pendingState: Partial<LightingStatus>,
+    status?: LightingStatus,
+  ): void {
+    const onState = pendingState.state ?? status?.state;
+    if (onState !== undefined) {
+      this.States.On = onState;
+      this.service.updateCharacteristic(this.platform.Characteristic.On, onState);
+    }
+
+    const brightness = pendingState.brightness ?? status?.brightness;
+    if (deviceData.dimmable !== false && brightness !== undefined) {
+      this.States.Brightness = brightness;
+      this.service.updateCharacteristic(this.platform.Characteristic.Brightness, brightness);
     }
   }
 
@@ -278,22 +328,54 @@ export class LightingAccessory {
     return true;
   }
 
-  private async confirmLightingState(expected: Partial<LightingStatus>): Promise<void> {
+  private async confirmLightingState(actionId: number, expected: Partial<LightingStatus>): Promise<void> {
     const deviceData = this.accessory.context.device;
+    let lastStatus: LightingStatus | undefined;
 
     for (let count = 0; count < 6; count++) {
+      if (actionId !== this.lightingActionSequence) {
+        return;
+      }
+
       await this.delay(750);
+      if (actionId !== this.lightingActionSequence) {
+        return;
+      }
+
       const status = await this.platform.client.getLightingStatus(deviceData, true);
+      if (actionId !== this.lightingActionSequence) {
+        return;
+      }
+
+      lastStatus = status;
       this.updateHomeKitState(deviceData, status);
 
       if (this.lightingStatusMatches(status, expected)) {
+        this.clearPendingLightingState(actionId);
         this.States.BlockUpdate = 0;
         this.platform.log.info(`${deviceData.displayName} state confirmed after action`);
         return;
       }
     }
 
+    this.clearPendingLightingState(actionId);
     this.States.BlockUpdate = 0;
+    if (lastStatus) {
+      this.updateHomeKitState(deviceData, lastStatus);
+      this.platform.log.warn(`${deviceData.displayName} state confirmation timed out after action`);
+    }
+  }
+
+  private beginPendingLightingState(expected: Partial<LightingStatus>): number {
+    const actionId = ++this.lightingActionSequence;
+    this.pendingLightingState = expected;
+    return actionId;
+  }
+
+  private clearPendingLightingState(actionId: number): void {
+    if (actionId === this.lightingActionSequence) {
+      this.pendingLightingState = undefined;
+    }
   }
 
   private lightingStatusMatches(status: LightingStatus, expected: Partial<LightingStatus>): boolean {

@@ -8,6 +8,9 @@ import { Aiseg2Platform } from './platform';
 export class ShutterAccessory {
   private readonly service: Service;
   private readonly device: ShutterDevice;
+  private pendingTargetPosition?: number;
+  private pendingDesiredPosition?: number;
+  private positionActionSequence = 0;
 
   private state = {
     currentPosition: 50,
@@ -60,14 +63,24 @@ export class ShutterAccessory {
   }
 
   async setTargetPosition(value: CharacteristicValue): Promise<void> {
-    const targetPosition = Math.max(0, Math.min(100, Number(value)));
-    if (!Number.isFinite(targetPosition)) {
+    const requestedPosition = Math.max(0, Math.min(100, Number(value)));
+    if (!Number.isFinite(requestedPosition)) {
       throw new Error(`Invalid shutter target position '${value}'`);
+    }
+
+    const targetPosition = requestedPosition >= 50 ? 100 : 0;
+    if (this.pendingTargetPosition !== undefined) {
+      this.applyPendingPosition(this.state.currentPosition, this.pendingTargetPosition);
+      this.platform.log.warn(
+        `${this.device.displayName} position request ignored while ${this.pendingTargetPosition}% is still pending`,
+      );
+      return;
     }
 
     const currentPosition = this.state.currentPosition;
     this.platform.log.info(
-      `${this.device.displayName} position request: target=${targetPosition}%, current=${currentPosition}%`,
+      `${this.device.displayName} position request: requested=${requestedPosition}%, ` +
+      `target=${targetPosition}%, current=${currentPosition}%`,
     );
 
     if (targetPosition === currentPosition) {
@@ -75,24 +88,31 @@ export class ShutterAccessory {
       return;
     }
 
-    this.state.targetPosition = targetPosition;
-    this.state.positionState = targetPosition > currentPosition
-      ? this.platform.Characteristic.PositionState.INCREASING
-      : this.platform.Characteristic.PositionState.DECREASING;
-    this.service.updateCharacteristic(this.platform.Characteristic.TargetPosition, targetPosition);
-    this.service.updateCharacteristic(this.platform.Characteristic.PositionState, this.state.positionState);
+    const actionId = this.beginPendingPosition(targetPosition);
+    this.applyPendingPosition(currentPosition, targetPosition);
 
-    const token = await this.platform.client.getShutterControlToken();
-    const response = await this.platform.client.changeShutterPosition(this.device, token, targetPosition);
-    this.platform.log.info(
-      `${this.device.displayName} position request accepted: target=${targetPosition}%, acceptId=${response.acceptId ?? '-'}`,
-    );
-    await this.waitForAcceptedChange(response, token);
+    try {
+      const token = await this.platform.client.getShutterControlToken();
+      const response = await this.platform.client.changeShutterPosition(this.device, token, targetPosition);
+      this.platform.log.info(
+        `${this.device.displayName} position request accepted: target=${targetPosition}%, acceptId=${response.acceptId ?? '-'}`,
+      );
+      await this.waitForAcceptedChange(response, token);
 
-    const desiredPosition = targetPosition >= 50 ? 100 : 0;
-    this.confirmTargetPosition(desiredPosition).catch(error => {
-      this.platform.log.error(`${this.device.displayName} post-position refresh failed: ${this.formatError(error)}`);
-    });
+      this.confirmTargetPosition(actionId, targetPosition).catch(error => {
+        this.clearPendingPosition(actionId);
+        this.platform.log.error(`${this.device.displayName} post-position refresh failed: ${this.formatError(error)}`);
+        this.updateStatus(true).catch(refreshError => {
+          this.platform.log.error(`${this.device.displayName} post-position recovery refresh failed: ${this.formatError(refreshError)}`);
+        });
+      }).finally(() => {
+        this.clearPendingPosition(actionId);
+      });
+    } catch (error) {
+      this.clearPendingPosition(actionId);
+      await this.updateStatus(true);
+      throw error;
+    }
   }
 
   async holdPosition(value: CharacteristicValue): Promise<void> {
@@ -101,6 +121,7 @@ export class ShutterAccessory {
     }
 
     this.platform.log.info(`${this.device.displayName} stop request`);
+    this.cancelPendingPosition();
     const token = await this.platform.client.getShutterControlToken();
     const response = await this.platform.client.stopShutter(this.device, token);
     this.platform.log.info(`${this.device.displayName} stop request accepted: acceptId=${response.acceptId ?? '-'}`);
@@ -116,6 +137,15 @@ export class ShutterAccessory {
   }
 
   private applyStatus(status: ShutterStatus): void {
+    if (
+      this.pendingTargetPosition !== undefined &&
+      this.pendingDesiredPosition !== undefined &&
+      status.position !== this.pendingDesiredPosition
+    ) {
+      this.applyPendingPosition(status.position, this.pendingTargetPosition);
+      return;
+    }
+
     this.state.currentPosition = status.position;
     this.state.targetPosition = status.position;
     this.state.positionState = this.platform.Characteristic.PositionState.STOPPED;
@@ -137,9 +167,20 @@ export class ShutterAccessory {
     return 50;
   }
 
-  private updateCurrentPosition(status: ShutterStatus): void {
-    this.state.currentPosition = status.position;
+  private applyPendingPosition(currentPosition: number, targetPosition: number): void {
+    this.state.currentPosition = currentPosition;
+    this.state.targetPosition = targetPosition;
+    if (targetPosition === currentPosition) {
+      this.state.positionState = this.platform.Characteristic.PositionState.STOPPED;
+    } else {
+      this.state.positionState = targetPosition > currentPosition
+        ? this.platform.Characteristic.PositionState.INCREASING
+        : this.platform.Characteristic.PositionState.DECREASING;
+    }
+
     this.service.updateCharacteristic(this.platform.Characteristic.CurrentPosition, this.state.currentPosition);
+    this.service.updateCharacteristic(this.platform.Characteristic.TargetPosition, this.state.targetPosition);
+    this.service.updateCharacteristic(this.platform.Characteristic.PositionState, this.state.positionState);
   }
 
   private async waitForAcceptedChange(response: OperationResponse, token: string): Promise<void> {
@@ -168,12 +209,24 @@ export class ShutterAccessory {
     throw new Error(`Timed out waiting for '${this.device.displayName}' to update`);
   }
 
-  private async confirmTargetPosition(desiredPosition: number): Promise<void> {
+  private async confirmTargetPosition(actionId: number, desiredPosition: number): Promise<void> {
     let lastStatus: ShutterStatus | undefined;
 
     for (let count = 0; count < 30; count++) {
+      if (actionId !== this.positionActionSequence) {
+        return;
+      }
+
       await this.delay(1000);
+      if (actionId !== this.positionActionSequence) {
+        return;
+      }
+
       const status = await this.platform.client.getShutterStatus(this.device, true);
+      if (actionId !== this.positionActionSequence) {
+        return;
+      }
+
       lastStatus = status;
 
       if (status.position === desiredPosition) {
@@ -182,15 +235,35 @@ export class ShutterAccessory {
         return;
       }
 
-      this.updateCurrentPosition(status);
+      this.applyPendingPosition(status.position, desiredPosition);
     }
 
     if (lastStatus) {
-      this.applyStatus(lastStatus);
-      this.platform.log.warn(
-        `${this.device.displayName} position confirmation timed out: target=${desiredPosition}%, current=${lastStatus.position}%`,
-      );
+      this.applyPendingPosition(lastStatus.position, desiredPosition);
     }
+    throw new Error(
+      `position confirmation timed out: target=${desiredPosition}%, current=${lastStatus?.position ?? 'unknown'}%`,
+    );
+  }
+
+  private beginPendingPosition(desiredPosition: number): number {
+    const actionId = ++this.positionActionSequence;
+    this.pendingTargetPosition = desiredPosition;
+    this.pendingDesiredPosition = desiredPosition;
+    return actionId;
+  }
+
+  private clearPendingPosition(actionId: number): void {
+    if (actionId === this.positionActionSequence) {
+      this.pendingTargetPosition = undefined;
+      this.pendingDesiredPosition = undefined;
+    }
+  }
+
+  private cancelPendingPosition(): void {
+    this.positionActionSequence++;
+    this.pendingTargetPosition = undefined;
+    this.pendingDesiredPosition = undefined;
   }
 
   private delay(ms: number): Promise<void> {
