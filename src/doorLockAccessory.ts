@@ -9,6 +9,11 @@ export class DoorLockAccessory {
   private readonly service: Service;
   private readonly device: DoorLockDevice;
   private pendingTargetSecured?: boolean;
+  private queuedTargetSecured?: boolean;
+  private lastSubmittedTarget?: {
+    secured: boolean;
+    at: number;
+  };
 
   private state = {
     currentState: 3,
@@ -59,6 +64,16 @@ export class DoorLockAccessory {
     const desiredSecured = targetState === this.platform.Characteristic.LockTargetState.SECURED;
 
     if (this.pendingTargetSecured !== undefined) {
+      if (this.pendingTargetSecured !== desiredSecured) {
+        this.queuedTargetSecured = desiredSecured;
+        this.updateTargetState(desiredSecured);
+        this.platform.log.info(
+          `${this.device.displayName} lock request queued: ${this.formatSecured(desiredSecured)} ` +
+          `while ${this.formatSecured(this.pendingTargetSecured)} is still pending`,
+        );
+        return;
+      }
+
       this.updateTargetState(this.pendingTargetSecured);
       this.platform.log.warn(
         `${this.device.displayName} lock request ignored while ${this.formatSecured(this.pendingTargetSecured)} is still pending`,
@@ -78,11 +93,21 @@ export class DoorLockAccessory {
       return;
     }
 
+    if (this.wasRecentlySubmitted(desiredSecured)) {
+      this.updateTargetState(desiredSecured);
+      this.platform.log.warn(
+        `${this.device.displayName} lock request ignored: ${this.formatSecured(desiredSecured)} was sent recently; ` +
+        'waiting for AiSEG2 to settle',
+      );
+      return;
+    }
+
     this.pendingTargetSecured = desiredSecured;
     this.updateTargetState(desiredSecured);
 
     try {
       const token = await this.platform.client.getDoorLockControlToken();
+      this.rememberSubmittedTarget(desiredSecured);
       const response = await this.platform.client.changeDoorLock(this.device, token, status);
       this.assertAcceptedResponse(response);
       this.platform.log.info(
@@ -99,10 +124,12 @@ export class DoorLockAccessory {
         });
       }).finally(() => {
         this.pendingTargetSecured = undefined;
+        this.runQueuedTargetState();
       });
     } catch (error) {
       this.pendingTargetSecured = undefined;
       await this.updateStatus(true);
+      this.runQueuedTargetState();
       throw error;
     }
   }
@@ -216,5 +243,32 @@ export class DoorLockAccessory {
     }
 
     return 'unknown';
+  }
+
+  private wasRecentlySubmitted(secured: boolean): boolean {
+    return this.lastSubmittedTarget?.secured === secured && Date.now() - this.lastSubmittedTarget.at < 15000;
+  }
+
+  private rememberSubmittedTarget(secured: boolean): void {
+    this.lastSubmittedTarget = {
+      secured,
+      at: Date.now(),
+    };
+  }
+
+  private runQueuedTargetState(): void {
+    if (this.queuedTargetSecured === undefined) {
+      return;
+    }
+
+    const secured = this.queuedTargetSecured;
+    this.queuedTargetSecured = undefined;
+    const targetState = secured
+      ? this.platform.Characteristic.LockTargetState.SECURED
+      : this.platform.Characteristic.LockTargetState.UNSECURED;
+
+    void this.setTargetState(targetState).catch(error => {
+      this.platform.log.error(`${this.device.displayName} queued lock request failed: ${this.formatError(error)}`);
+    });
   }
 }

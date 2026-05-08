@@ -10,6 +10,7 @@ export class ShutterAccessory {
   private readonly device: ShutterDevice;
   private pendingTargetPosition?: number;
   private pendingDesiredPosition?: number;
+  private queuedTargetPosition?: number;
   private positionActionSequence = 0;
 
   private state = {
@@ -76,6 +77,16 @@ export class ShutterAccessory {
 
     const targetPosition = this.normalizeTargetPosition(requestedPosition);
     if (this.pendingTargetPosition !== undefined) {
+      if (this.pendingTargetPosition !== targetPosition) {
+        this.queuedTargetPosition = targetPosition;
+        this.applyPendingPosition(this.state.currentPosition, targetPosition);
+        this.platform.log.info(
+          `${this.device.displayName} position request queued: target=${targetPosition}% ` +
+          `while ${this.pendingTargetPosition}% is still pending`,
+        );
+        return;
+      }
+
       this.applyPendingPosition(this.state.currentPosition, this.pendingTargetPosition);
       this.platform.log.warn(
         `${this.device.displayName} position request ignored while ${this.pendingTargetPosition}% is still pending`,
@@ -114,10 +125,12 @@ export class ShutterAccessory {
         });
       }).finally(() => {
         this.clearPendingPosition(actionId);
+        this.runQueuedTargetPosition();
       });
     } catch (error) {
       this.clearPendingPosition(actionId);
       await this.updateStatus(true);
+      this.runQueuedTargetPosition();
       throw error;
     }
   }
@@ -129,6 +142,7 @@ export class ShutterAccessory {
 
     this.platform.log.info(`${this.device.displayName} stop request`);
     this.cancelPendingPosition();
+    this.queuedTargetPosition = undefined;
     const token = await this.platform.client.getShutterControlToken();
     const response = await this.platform.client.stopShutter(this.device, token);
     this.platform.log.info(
@@ -290,6 +304,18 @@ export class ShutterAccessory {
     this.positionActionSequence++;
     this.pendingTargetPosition = undefined;
     this.pendingDesiredPosition = undefined;
+  }
+
+  private runQueuedTargetPosition(): void {
+    if (this.queuedTargetPosition === undefined) {
+      return;
+    }
+
+    const targetPosition = this.queuedTargetPosition;
+    this.queuedTargetPosition = undefined;
+    void this.setTargetPosition(targetPosition).catch(error => {
+      this.platform.log.error(`${this.device.displayName} queued position request failed: ${this.formatError(error)}`);
+    });
   }
 
   private delay(ms: number): Promise<void> {

@@ -12,6 +12,11 @@ export class AirConditionerAccessory {
   private outdoorTemperatureService?: Service;
   private pendingActive?: boolean;
   private pendingTargetHeatingCoolingState?: number;
+  private queuedPowerTarget?: {
+    active: boolean;
+    targetState: number;
+  };
+
   private powerActionSequence = 0;
 
   private state = {
@@ -99,6 +104,19 @@ export class AirConditionerAccessory {
     const desiredActive = targetState !== this.platform.Characteristic.TargetHeatingCoolingState.OFF;
 
     if (this.pendingActive !== undefined) {
+      if (this.pendingActive !== desiredActive || this.pendingTargetHeatingCoolingState !== targetState) {
+        this.queuedPowerTarget = {
+          active: desiredActive,
+          targetState,
+        };
+        this.updateTargetHeatingCoolingState(targetState);
+        this.platform.log.info(
+          `${this.device.displayName} power request queued: ${this.formatActive(desiredActive)} ` +
+          `while ${this.formatActive(this.pendingActive)} is still pending`,
+        );
+        return;
+      }
+
       this.updateTargetHeatingCoolingState(this.pendingTargetHeatingCoolingState ?? this.state.targetHeatingCoolingState);
       this.platform.log.warn(
         `${this.device.displayName} power request ignored while ${this.formatActive(this.pendingActive)} is still pending`,
@@ -129,10 +147,12 @@ export class AirConditionerAccessory {
           });
         }).finally(() => {
           this.clearPendingPowerState(actionId);
+          this.runQueuedPowerTarget();
         });
       } catch (error) {
         this.clearPendingPowerState(actionId);
         await this.updateStatus(true);
+        this.runQueuedPowerTarget();
         throw error;
       }
       return;
@@ -372,6 +392,18 @@ export class AirConditionerAccessory {
       this.pendingActive = undefined;
       this.pendingTargetHeatingCoolingState = undefined;
     }
+  }
+
+  private runQueuedPowerTarget(): void {
+    if (!this.queuedPowerTarget) {
+      return;
+    }
+
+    const targetState = this.queuedPowerTarget.targetState;
+    this.queuedPowerTarget = undefined;
+    void this.setTargetHeatingCoolingState(targetState).catch(error => {
+      this.platform.log.error(`${this.device.displayName} queued power request failed: ${this.formatError(error)}`);
+    });
   }
 
   private delay(ms: number): Promise<void> {

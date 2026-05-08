@@ -42,6 +42,7 @@ export class AirPurifierAccessory {
   private readonly modeSwitchServices = new Map<AirPurifierMode, Service>();
   private readonly device: AirPurifierDevice;
   private pendingMode?: AirPurifierMode;
+  private queuedMode?: AirPurifierMode;
   private modeActionSequence = 0;
 
   private state = {
@@ -152,6 +153,16 @@ export class AirPurifierAccessory {
     );
 
     if (this.pendingMode !== undefined) {
+      if (this.pendingMode !== mode) {
+        this.queuedMode = mode;
+        this.applyModeState(mode);
+        this.platform.log.info(
+          `${this.device.displayName} mode request queued: ${this.formatMode(mode)} ` +
+          `while ${this.formatMode(this.pendingMode)} is still pending`,
+        );
+        return;
+      }
+
       this.applyModeState(this.pendingMode);
       this.platform.log.warn(
         `${this.device.displayName} mode request ignored while ${this.formatMode(this.pendingMode)} is still pending`,
@@ -184,11 +195,13 @@ export class AirPurifierAccessory {
         });
       }).finally(() => {
         this.clearPendingMode(actionId);
+        this.runQueuedMode();
       });
     } catch (error) {
       this.clearPendingMode(actionId);
       this.platform.log.error(`${this.device.displayName} mode request failed: ${this.formatError(error)}`);
       await this.updateStatus(true);
+      this.runQueuedMode();
       throw error;
     }
   }
@@ -428,6 +441,18 @@ export class AirPurifierAccessory {
     if (actionId === this.modeActionSequence) {
       this.pendingMode = undefined;
     }
+  }
+
+  private runQueuedMode(): void {
+    if (this.queuedMode === undefined) {
+      return;
+    }
+
+    const mode = this.queuedMode;
+    this.queuedMode = undefined;
+    void this.setMode(mode).catch(error => {
+      this.platform.log.error(`${this.device.displayName} queued mode request failed: ${this.formatError(error)}`);
+    });
   }
 
   private delay(ms: number): Promise<void> {
