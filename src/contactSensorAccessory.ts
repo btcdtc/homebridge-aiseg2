@@ -1,4 +1,4 @@
-import { CharacteristicValue, PlatformAccessory, Service } from 'homebridge';
+import { PlatformAccessory, Service } from 'homebridge';
 
 import { ContactSensorDevice } from './devices';
 import { Aiseg2Platform } from './platform';
@@ -6,12 +6,11 @@ import { Aiseg2Platform } from './platform';
 
 export class ContactSensorAccessory {
   private readonly service: Service;
-  private readonly lockService?: Service;
+  private readonly lockStateService?: Service;
   private readonly device: ContactSensorDevice;
 
   private state = {
-    lockCurrentState: 3,
-    lockTargetState: 0,
+    lockContactState: 0,
   };
 
   constructor(
@@ -28,7 +27,7 @@ export class ContactSensorAccessory {
     this.service = this.accessory.getService(this.platform.Service.ContactSensor) ||
       this.accessory.addService(this.platform.Service.ContactSensor);
     this.service.setCharacteristic(this.platform.Characteristic.Name, this.platform.formatHomeKitName(this.device.displayName));
-    this.lockService = this.configureLockService(this.lockedFromValue(this.device.lockVal));
+    this.lockStateService = this.configureLockStateService(this.lockedFromValue(this.device.lockVal));
 
     this.applyState(
       this.contactDetectedFromDevice(),
@@ -61,8 +60,13 @@ export class ContactSensorAccessory {
     this.applyLockState(locked);
   }
 
-  private configureLockService(initialLocked: boolean | undefined): Service | undefined {
-    const existingService = this.accessory.getServiceById(this.platform.Service.LockMechanism, 'lock-state');
+  private configureLockStateService(initialLocked: boolean | undefined): Service | undefined {
+    const legacyLockService = this.accessory.getServiceById(this.platform.Service.LockMechanism, 'lock-state');
+    if (legacyLockService) {
+      this.accessory.removeService(legacyLockService);
+    }
+
+    const existingService = this.accessory.getServiceById(this.platform.Service.ContactSensor, 'lock-state');
     if (!this.platform.exposeContactSensorLockState || initialLocked === undefined) {
       if (existingService) {
         this.accessory.removeService(existingService);
@@ -72,7 +76,7 @@ export class ContactSensorAccessory {
 
     const service = existingService ||
       this.accessory.addService(
-        this.platform.Service.LockMechanism,
+        this.platform.Service.ContactSensor,
         this.platform.formatHomeKitName(`${this.device.displayName} ロック`),
         'lock-state',
       );
@@ -80,40 +84,27 @@ export class ContactSensorAccessory {
       this.platform.Characteristic.Name,
       this.platform.formatHomeKitName(`${this.device.displayName} ロック`),
     );
-    service.getCharacteristic(this.platform.Characteristic.LockCurrentState)
-      .onGet(() => this.state.lockCurrentState);
-    service.getCharacteristic(this.platform.Characteristic.LockTargetState)
-      .onGet(() => this.state.lockTargetState)
-      .onSet(this.setReadOnlyLockTarget.bind(this));
+    service.getCharacteristic(this.platform.Characteristic.ContactSensorState)
+      .onGet(() => this.state.lockContactState);
     this.platform.configureGroupedService(this.service, [service], true);
 
     return service;
   }
 
   private applyLockState(locked: boolean | undefined): void {
-    if (!this.lockService) {
+    if (!this.lockStateService) {
       return;
     }
 
     if (locked === true) {
-      this.state.lockCurrentState = this.platform.Characteristic.LockCurrentState.SECURED;
-      this.state.lockTargetState = this.platform.Characteristic.LockTargetState.SECURED;
+      this.state.lockContactState = this.platform.Characteristic.ContactSensorState.CONTACT_DETECTED;
     } else if (locked === false) {
-      this.state.lockCurrentState = this.platform.Characteristic.LockCurrentState.UNSECURED;
-      this.state.lockTargetState = this.platform.Characteristic.LockTargetState.UNSECURED;
+      this.state.lockContactState = this.platform.Characteristic.ContactSensorState.CONTACT_NOT_DETECTED;
     } else {
-      this.state.lockCurrentState = this.platform.Characteristic.LockCurrentState.UNKNOWN;
+      return;
     }
 
-    this.lockService.updateCharacteristic(this.platform.Characteristic.LockCurrentState, this.state.lockCurrentState);
-    this.lockService.updateCharacteristic(this.platform.Characteristic.LockTargetState, this.state.lockTargetState);
-  }
-
-  private async setReadOnlyLockTarget(value: CharacteristicValue): Promise<void> {
-    this.platform.log.warn(
-      `${this.device.displayName} lock target request ignored: contact sensor lock state is read-only (${value})`,
-    );
-    this.lockService?.updateCharacteristic(this.platform.Characteristic.LockTargetState, this.state.lockTargetState);
+    this.lockStateService.updateCharacteristic(this.platform.Characteristic.ContactSensorState, this.state.lockContactState);
   }
 
   private contactDetectedFromDevice(): boolean {

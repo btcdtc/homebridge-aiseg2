@@ -57,7 +57,7 @@
         "title": "Expose contact sensor lock state",
         "type": "boolean",
         "default": false,
-        "description": "Adds a read-only Lock Mechanism service to window lock sensors when AiSEG2 reports lock state data."
+        "description": "Adds a read-only Contact Sensor service to window lock sensors when AiSEG2 reports lock state data."
       }
     }
   }

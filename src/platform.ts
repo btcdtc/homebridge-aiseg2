@@ -1,4 +1,4 @@
-import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic } from 'homebridge';
+import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic, Categories } from 'homebridge';
 
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 import { AirConditionerAccessory } from './airConditionerAccessory';
@@ -65,6 +65,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
 
       existingAccessory.context.device = device;
       existingAccessory.context.kind = device.kind;
+      existingAccessory.category = this.categoryForDevice(device.kind);
       if (existingAccessory.displayName !== homeKitName) {
         existingAccessory.updateDisplayName(homeKitName);
       }
@@ -73,7 +74,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       this.createAccessoryHandler(device.kind, existingAccessory);
     } else {
       this.log.info('Adding new accessory:', device.displayName);
-      const accessory = new this.api.platformAccessory(homeKitName, uuid);
+      const accessory = new this.api.platformAccessory(homeKitName, uuid, this.categoryForDevice(device.kind));
       accessory.context.device = device;
       accessory.context.kind = device.kind;
       this.createAccessoryHandler(device.kind, accessory);
@@ -229,6 +230,27 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       default:
         this.log.warn(`No HomeKit handler registered for AiSEG2 device kind '${kind}'`);
         break;
+    }
+  }
+
+  private categoryForDevice(kind: SupportedDeviceKind): Categories {
+    switch (kind) {
+      case 'lighting':
+        return this.api.hap.Categories.LIGHTBULB;
+      case 'contactSensor':
+      case 'smokeSensor':
+      case 'airEnvironmentSensor':
+        return this.api.hap.Categories.SENSOR;
+      case 'airConditioner':
+        return this.api.hap.Categories.AIR_CONDITIONER;
+      case 'shutter':
+        return this.api.hap.Categories.WINDOW_COVERING;
+      case 'airPurifier':
+        return this.api.hap.Categories.AIR_PURIFIER;
+      case 'doorLock':
+        return this.api.hap.Categories.DOOR_LOCK;
+      default:
+        return this.api.hap.Categories.OTHER;
     }
   }
 
