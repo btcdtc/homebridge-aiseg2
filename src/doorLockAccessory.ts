@@ -35,15 +35,17 @@ export class DoorLockAccessory {
       .onSet(this.setTargetState.bind(this))
       .onGet(() => this.state.targetState);
 
-    this.updateStatus().catch(error => {
-      this.platform.log.error(`Failed to update door lock '${this.device.displayName}': ${this.formatError(error)}`);
+    this.applyStatus({
+      lockVal: this.device.lockVal || '',
+      statecmd: this.device.statecmd || '',
+      secured: this.device.lockVal === 'lock_val' ? true : this.device.lockVal === 'lock_val open' ? false : undefined,
     });
 
     setInterval(() => {
       this.updateStatus().catch(error => {
         this.platform.log.error(`Failed to update door lock '${this.device.displayName}': ${this.formatError(error)}`);
       });
-    }, 5000);
+    }, 30000);
   }
 
   async updateStatus(): Promise<void> {

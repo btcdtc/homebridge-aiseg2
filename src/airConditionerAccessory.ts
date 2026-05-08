@@ -30,6 +30,8 @@ export class AirConditionerAccessory {
     this.service = this.accessory.getService(this.platform.Service.Thermostat) ||
       this.accessory.addService(this.platform.Service.Thermostat);
     this.service.setCharacteristic(this.platform.Characteristic.Name, this.platform.formatHomeKitName(this.device.displayName));
+    this.service.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, this.state.currentTemperature);
+    this.service.updateCharacteristic(this.platform.Characteristic.TargetTemperature, this.state.targetTemperature);
 
     this.service.getCharacteristic(this.platform.Characteristic.TargetHeatingCoolingState)
       .setProps({
@@ -71,7 +73,7 @@ export class AirConditionerAccessory {
       this.updateStatus().catch(error => {
         this.platform.log.error(`Failed to update air conditioner '${this.device.displayName}': ${this.formatError(error)}`);
       });
-    }, 5000);
+    }, 30000);
   }
 
   async updateStatus(): Promise<void> {

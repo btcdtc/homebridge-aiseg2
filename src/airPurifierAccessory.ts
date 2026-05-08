@@ -65,7 +65,7 @@ export class AirPurifierAccessory {
       this.updateStatus().catch(error => {
         this.platform.log.error(`Failed to update air purifier '${this.device.displayName}': ${this.formatError(error)}`);
       });
-    }, 5000);
+    }, 30000);
   }
 
   async updateStatus(): Promise<void> {

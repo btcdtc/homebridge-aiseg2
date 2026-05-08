@@ -23,28 +23,33 @@ export class SmokeSensorAccessory {
       this.accessory.addService(this.platform.Service.SmokeSensor);
     this.service.setCharacteristic(this.platform.Characteristic.Name, this.platform.formatHomeKitName(this.device.displayName));
 
-    this.updateSmokeState().catch(error => {
-      this.platform.log.error(`Failed to update smoke sensor '${this.device.displayName}': ${this.formatError(error)}`);
-    });
+    this.applyState(
+      Boolean(this.device.color) || Boolean(this.device.time && this.device.time !== '-'),
+      this.device.battVisible !== undefined && this.device.battVisible !== 'hidden',
+    );
 
     setInterval(() => {
       this.updateSmokeState().catch(error => {
         this.platform.log.error(`Failed to update smoke sensor '${this.device.displayName}': ${this.formatError(error)}`);
       });
-    }, 5000);
+    }, 30000);
   }
 
   async updateSmokeState(): Promise<void> {
     const status = await this.platform.client.getSmokeSensorStatus(this.device);
-    const smokeState = status.smokeDetected
+    this.applyState(status.smokeDetected, status.lowBattery);
+  }
+
+  private applyState(smokeDetected: boolean, lowBattery: boolean): void {
+    const smokeState = smokeDetected
       ? this.platform.Characteristic.SmokeDetected.SMOKE_DETECTED
       : this.platform.Characteristic.SmokeDetected.SMOKE_NOT_DETECTED;
-    const lowBattery = status.lowBattery
+    const batteryState = lowBattery
       ? this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
       : this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL;
 
     this.service.updateCharacteristic(this.platform.Characteristic.SmokeDetected, smokeState);
-    this.service.updateCharacteristic(this.platform.Characteristic.StatusLowBattery, lowBattery);
+    this.service.updateCharacteristic(this.platform.Characteristic.StatusLowBattery, batteryState);
   }
 
   private formatError(error: unknown): string {

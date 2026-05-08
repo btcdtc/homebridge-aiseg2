@@ -40,15 +40,18 @@ export class ShutterAccessory {
     this.service.getCharacteristic(this.platform.Characteristic.HoldPosition)
       .onSet(this.holdPosition.bind(this));
 
-    this.updateStatus().catch(error => {
-      this.platform.log.error(`Failed to update shutter '${this.device.displayName}': ${this.formatError(error)}`);
+    this.applyStatus({
+      state: this.device.state || '0x31',
+      openState: this.device.openState || '',
+      condition: this.device.condition || '',
+      position: this.positionFromDevice(),
     });
 
     setInterval(() => {
       this.updateStatus().catch(error => {
         this.platform.log.error(`Failed to update shutter '${this.device.displayName}': ${this.formatError(error)}`);
       });
-    }, 5000);
+    }, 30000);
   }
 
   async updateStatus(): Promise<void> {
@@ -107,6 +110,18 @@ export class ShutterAccessory {
     this.service.updateCharacteristic(this.platform.Characteristic.CurrentPosition, this.state.currentPosition);
     this.service.updateCharacteristic(this.platform.Characteristic.TargetPosition, this.state.targetPosition);
     this.service.updateCharacteristic(this.platform.Characteristic.PositionState, this.state.positionState);
+  }
+
+  private positionFromDevice(): number {
+    if (this.device.condition === '開' || this.device.openState === '0x41') {
+      return 100;
+    }
+
+    if (this.device.condition === '閉' || this.device.openState === '0x42') {
+      return 0;
+    }
+
+    return 50;
   }
 
   private async waitForAcceptedChange(response: OperationResponse, token: string): Promise<void> {
