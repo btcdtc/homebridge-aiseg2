@@ -16,50 +16,70 @@ interface DiscoverySubnet {
   hosts: string[];
 }
 
+interface DiscoveryCandidate {
+  host: string;
+  interfaceName: string;
+  subnet: string;
+}
+
 const DISCOVERY_PATH = '/page/devices/device/32';
-const DISCOVERY_BATCH_SIZE = 32;
+const DISCOVERY_CONCURRENCY = 64;
 const MAX_HOSTS_PER_SUBNET = 254;
 
 export async function discoverAiseg2Controller(password: string): Promise<Aiseg2DiscoveryResult> {
-  const subnets = localIpv4Subnets();
-  const seenHosts = new Set<string>();
-
-  for (const subnet of subnets) {
-    const hosts = subnet.hosts.filter(host => {
-      if (seenHosts.has(host)) {
-        return false;
-      }
-      seenHosts.add(host);
-      return true;
-    });
-
-    for (let index = 0; index < hosts.length; index += DISCOVERY_BATCH_SIZE) {
-      const batch = hosts.slice(index, index + DISCOVERY_BATCH_SIZE);
-      const results = await Promise.all(batch.map(host => probeAiseg2Host(host, password)));
-      const matchIndex = results.findIndex(Boolean);
-
-      if (matchIndex >= 0) {
-        return {
-          host: batch[matchIndex],
-          interfaceName: subnet.interfaceName,
-          subnet: subnet.subnet,
-        };
-      }
-    }
-  }
-
-  throw new Error('No AiSEG2 controller was found on the current IPv4 subnets');
+  return findAiseg2Candidate(discoveryCandidates(localIpv4Subnets()), password);
 }
 
 export function localDiscoverySubnets(): string[] {
   return localIpv4Subnets().map(subnet => `${subnet.interfaceName} ${subnet.subnet}`);
 }
 
+function findAiseg2Candidate(candidates: DiscoveryCandidate[], password: string): Promise<Aiseg2DiscoveryResult> {
+  return new Promise((resolve, reject) => {
+    let cursor = 0;
+    let active = 0;
+    let settled = false;
+
+    const launch = () => {
+      while (!settled && active < DISCOVERY_CONCURRENCY && cursor < candidates.length) {
+        const candidate = candidates[cursor++];
+        active++;
+        probeAiseg2Host(candidate.host, password).then(found => {
+          active--;
+          if (settled) {
+            return;
+          }
+
+          if (found) {
+            settled = true;
+            resolve(candidate);
+            return;
+          }
+
+          if (cursor >= candidates.length && active === 0) {
+            settled = true;
+            reject(new Error('No AiSEG2 controller was found on the current IPv4 subnets'));
+            return;
+          }
+
+          launch();
+        });
+      }
+    };
+
+    launch();
+
+    if (candidates.length === 0) {
+      reject(new Error('No local IPv4 subnets are available for AiSEG2 discovery'));
+    }
+  });
+}
+
 async function probeAiseg2Host(host: string, password: string): Promise<boolean> {
   try {
     const response = await httpRequest<string>(`http://${host}${DISCOVERY_PATH}`, {
       digestAuth: `aiseg:${password}`,
-      timeout: [700, 1500],
+      timeout: [1500, 4000],
       dataType: 'text',
     });
 
@@ -70,6 +90,30 @@ async function probeAiseg2Host(host: string, password: string): Promise<boolean>
   } catch {
     return false;
   }
+}
+
+function discoveryCandidates(subnets: DiscoverySubnet[]): DiscoveryCandidate[] {
+  const candidates: DiscoveryCandidate[] = [];
+  const seenHosts = new Set<string>();
+  const maxHosts = Math.max(0, ...subnets.map(subnet => subnet.hosts.length));
+
+  for (let hostIndex = 0; hostIndex < maxHosts; hostIndex++) {
+    for (const subnet of subnets) {
+      const host = subnet.hosts[hostIndex];
+      if (!host || seenHosts.has(host)) {
+        continue;
+      }
+
+      seenHosts.add(host);
+      candidates.push({
+        host,
+        interfaceName: subnet.interfaceName,
+        subnet: subnet.subnet,
+      });
+    }
+  }
+
+  return candidates;
 }
 
 function localIpv4Subnets(): DiscoverySubnet[] {
