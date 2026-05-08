@@ -228,6 +228,38 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     return error instanceof Error ? error.message : String(error);
   }
 
+  public get groupAirPurifierSensors(): boolean {
+    return this.configBoolean('groupAirPurifierSensors', true);
+  }
+
+  public get groupAirConditionerSensors(): boolean {
+    return this.configBoolean('groupAirConditionerSensors', true);
+  }
+
+  public get groupAirEnvironmentSensors(): boolean {
+    return this.configBoolean('groupAirEnvironmentSensors', true);
+  }
+
+  public get exposeContactSensorLockState(): boolean {
+    return this.configBoolean('exposeContactSensorLockState', false);
+  }
+
+  public configureGroupedService(primaryService: Service, linkedServices: Service[], enabled: boolean): void {
+    primaryService.setPrimaryService(enabled);
+    for (const linkedService of linkedServices) {
+      if (enabled) {
+        primaryService.addLinkedService(linkedService);
+      } else {
+        primaryService.removeLinkedService(linkedService);
+      }
+    }
+  }
+
+  private configBoolean(key: string, defaultValue: boolean): boolean {
+    const value = this.config[key];
+    return typeof value === 'boolean' ? value : defaultValue;
+  }
+
   public formatHomeKitName(name: string): string {
     const sanitizedName = name
       .normalize('NFKC')

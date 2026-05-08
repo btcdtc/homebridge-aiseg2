@@ -69,6 +69,7 @@ export interface DoorLockStatus {
 export interface ContactSensorStatus {
   contactDetected: boolean;
   lowBattery: boolean;
+  locked?: boolean;
 }
 
 export interface SmokeSensorStatus {
@@ -593,8 +594,9 @@ export class Aiseg2Client {
     }
 
     return {
-      contactDetected: sensor.wSensorVal !== 'wsensor_val open' && sensor.lockVal !== 'lock_val open',
+      contactDetected: this.contactDetected(sensor),
       lowBattery: sensor.batteryUHF === 'U00' || sensor.batteryUHF === 'U01',
+      locked: this.locked(sensor),
     };
   }
 
@@ -1485,5 +1487,29 @@ export class Aiseg2Client {
       statecmd: data.statecmd || '',
       secured: data.lockVal === 'lock_val' ? true : data.lockVal === 'lock_val open' ? false : undefined,
     };
+  }
+
+  private contactDetected(data: LockupContactData): boolean {
+    if (data.wSensorVal) {
+      return data.wSensorVal !== 'wsensor_val open';
+    }
+
+    if (data.lockVal) {
+      return data.lockVal !== 'lock_val open';
+    }
+
+    return true;
+  }
+
+  private locked(data: LockupContactData): boolean | undefined {
+    if (data.lockVal === 'lock_val') {
+      return true;
+    }
+
+    if (data.lockVal === 'lock_val open') {
+      return false;
+    }
+
+    return undefined;
   }
 }

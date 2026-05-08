@@ -38,6 +38,11 @@ export class AirEnvironmentSensorAccessory {
       this.platform.Characteristic.Name,
       this.platform.formatHomeKitName(`${this.device.displayName} 湿度`),
     );
+    this.platform.configureGroupedService(
+      this.temperatureService,
+      [this.humidityService],
+      this.platform.groupAirEnvironmentSensors,
+    );
 
     this.applyState(this.device.temperature, this.device.humidity);
 

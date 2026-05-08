@@ -93,6 +93,7 @@ export class AirPurifierAccessory {
         this.getModeSwitchService(modeSwitch.subtype, `${this.device.displayName} ${modeSwitch.name}`, modeSwitch.mode),
       );
     }
+    this.configureGroupedServices();
 
     this.updateStatus().catch(error => {
       this.platform.log.error(`Failed to update air purifier '${this.device.displayName}': ${this.formatError(error)}`);
@@ -314,6 +315,19 @@ export class AirPurifierAccessory {
     for (const [mode, service] of this.modeSwitchServices) {
       service.updateCharacteristic(this.platform.Characteristic.On, this.state.mode === mode);
     }
+  }
+
+  private configureGroupedServices(): void {
+    this.platform.configureGroupedService(
+      this.service,
+      [
+        this.smellService,
+        this.pm25Service,
+        this.dustService,
+        ...this.modeSwitchServices.values(),
+      ],
+      this.platform.groupAirPurifierSensors,
+    );
   }
 
   private updateAirQualityServices(status: AirPurifierStatus): void {

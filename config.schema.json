@@ -34,6 +34,30 @@
         "required": true,
         "default": "",
         "description": "Password used to login to the Panasonic AiSEG2 controller"
+      },
+      "groupAirPurifierSensors": {
+        "title": "Group air purifier sensors",
+        "type": "boolean",
+        "default": true,
+        "description": "Marks each air purifier as the primary HomeKit service and links its air quality sensors and mode switches to it."
+      },
+      "groupAirConditionerSensors": {
+        "title": "Group air conditioner sensors",
+        "type": "boolean",
+        "default": true,
+        "description": "Marks each thermostat as the primary HomeKit service and links its indoor humidity and outdoor temperature sensors to it."
+      },
+      "groupAirEnvironmentSensors": {
+        "title": "Group air environment sensors",
+        "type": "boolean",
+        "default": true,
+        "description": "Marks each temperature service as the primary HomeKit service and links its paired humidity sensor to it."
+      },
+      "exposeContactSensorLockState": {
+        "title": "Expose contact sensor lock state",
+        "type": "boolean",
+        "default": false,
+        "description": "Adds a read-only Lock Mechanism service to window lock sensors when AiSEG2 reports lock state data."
       }
     }
   }

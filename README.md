@@ -18,7 +18,7 @@ This plugin supports the following AiSEG2 devices:
 * AiSEG2 air purifiers as HomeKit Air Purifier accessories with separate automatic-mode switches and odor, PM2.5, and house dust Air Quality Sensor services
 * AiSEG2 air environment sensors as HomeKit Temperature Sensor and Humidity Sensor services
 * AiSEG2 electric door locks as HomeKit Lock Mechanism accessories
-* AiSEG2 open/close and window lock sensors as HomeKit Contact Sensor accessories
+* AiSEG2 open/close and window lock sensors as HomeKit Contact Sensor accessories, optionally with read-only Lock Mechanism services
 * AiSEG2 fire alarm registrations as HomeKit Smoke Sensor accessories
 
 Air conditioner support currently provides reliable power/status and temperature reporting. Advanced mode, target temperature, and fan
@@ -35,8 +35,19 @@ To configure the plugin the hostname or IP address of the controller will need t
         "autodiscover": false,
         "host": "<controller IP address>",
         "password": "<controller password>",
+        "groupAirPurifierSensors": true,
+        "groupAirConditionerSensors": true,
+        "groupAirEnvironmentSensors": true,
+        "exposeContactSensorLockState": false,
         "platform": "AiSEG2"
     }]
+
+Grouping options use HomeKit primary/linked services so related measurements stay associated with the same accessory. Air purifiers
+link odor, PM2.5, house dust, and mode switches to the purifier service. Air conditioners link indoor humidity and outdoor
+temperature to the thermostat service. Air environment sensors link humidity to the paired temperature service.
+
+Set `exposeContactSensorLockState` to `true` to add a read-only Lock Mechanism service to window lock sensors that report
+`lockVal`. HomeKit exposes Lock Mechanism as a controllable service, so target lock changes are ignored and immediately reverted.
 
 ## Future Development
 

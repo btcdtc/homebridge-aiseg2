@@ -259,6 +259,8 @@ export class AirConditionerAccessory {
       this.ensureOutdoorTemperatureService()
         .updateCharacteristic(this.platform.Characteristic.CurrentTemperature, outdoorTemperature);
     }
+
+    this.configureGroupedServices();
   }
 
   private updateTargetHeatingCoolingState(targetState: number): void {
@@ -286,6 +288,15 @@ export class AirConditionerAccessory {
     }
 
     return this.outdoorTemperatureService;
+  }
+
+  private configureGroupedServices(): void {
+    const linkedServices = [
+      this.indoorHumidityService,
+      this.outdoorTemperatureService,
+    ].filter((service): service is Service => service !== undefined);
+
+    this.platform.configureGroupedService(this.service, linkedServices, this.platform.groupAirConditionerSensors);
   }
 
   private async waitForAcceptedChange(response: OperationResponse, token: string): Promise<void> {
