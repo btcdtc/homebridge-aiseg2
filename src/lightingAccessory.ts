@@ -11,6 +11,7 @@ enum LightState {
 
 export class LightingAccessory {
   private service: Service;
+  private readonly supportsBrightness: boolean;
 
   // Accessory state tracking data
   private States = {
@@ -28,6 +29,8 @@ export class LightingAccessory {
     private readonly platform: Aiseg2Platform,
     private readonly accessory: PlatformAccessory,
   ) {
+    const deviceData = accessory.context.device as LightingDevice;
+    this.supportsBrightness = deviceData.dimmable !== false;
 
     // set accessory information
     this.accessory.getService(this.platform.Service.AccessoryInformation)!
@@ -41,10 +44,10 @@ export class LightingAccessory {
     // set the service name for display as the default name in the Home app
     this.service.setCharacteristic(
       this.platform.Characteristic.Name,
-      this.platform.formatHomeKitName(accessory.context.device.displayName),
+      this.platform.formatHomeKitName(deviceData.displayName),
     );
-    this.States.On = accessory.context.device.state === 'on';
-    this.States.Brightness = accessory.context.device.brightness || 100;
+    this.States.On = deviceData.state === 'on';
+    this.States.Brightness = deviceData.brightness || 100;
     this.service.updateCharacteristic(this.platform.Characteristic.On, this.States.On);
 
     // register handlers for the On/Off Characteristic
@@ -52,18 +55,21 @@ export class LightingAccessory {
       .onSet(this.setOn.bind(this))                // SET - bind to the `setOn` method below
       .onGet(this.getOn.bind(this));               // GET - bind to the `getOn` method below
 
-    // register handlers for the Brightness Characteristic
-    this.service.getCharacteristic(this.platform.Characteristic.Brightness)
-      .onSet(this.setBrightness.bind(this));       // SET - bind to the 'setBrightness` method below
-
-    // set brightness properties for the lightbulb device
-    this.service.getCharacteristic(this.platform.Characteristic.Brightness)
-      .setProps({
-        minValue: 0,
-        maxValue: 100,
-        minStep: 20,
-      });
-    this.service.updateCharacteristic(this.platform.Characteristic.Brightness, this.States.Brightness);
+    if (this.supportsBrightness) {
+      // register handlers for the Brightness Characteristic
+      this.service.getCharacteristic(this.platform.Characteristic.Brightness)
+        .onSet(this.setBrightness.bind(this))       // SET - bind to the 'setBrightness` method below
+        .setProps({
+          minValue: 0,
+          maxValue: 100,
+          minStep: 20,
+          validValues: [0, 20, 40, 60, 80, 100],
+        });
+      this.service.updateCharacteristic(this.platform.Characteristic.Brightness, this.States.Brightness);
+    } else if (this.service.testCharacteristic(this.platform.Characteristic.Brightness)) {
+      this.service.removeCharacteristic(this.service.getCharacteristic(this.platform.Characteristic.Brightness));
+      this.platform.log.info(`${deviceData.displayName} brightness control disabled: device does not support dimming`);
+    }
 
     // Get a control token from the AiSEG2 controller
     this.updateControlToken().catch(error => {
@@ -226,6 +232,9 @@ export class LightingAccessory {
     }
 
     const brightness = this.normalizeBrightness(value);
+    this.States.Brightness = brightness;
+    this.service.updateCharacteristic(this.platform.Characteristic.Brightness, brightness);
+
     if (this.pendingLightingState?.state === true && this.pendingLightingState.brightness === brightness) {
       this.applyPendingLightingState(deviceData, this.pendingLightingState);
       this.platform.log.warn(`${deviceData.displayName} brightness request ignored while ${brightness}% is still pending`);

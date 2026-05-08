@@ -87,6 +87,7 @@ export type LightingChangeResponse = OperationResponse;
 
 export interface ShutterOperationResponse extends OperationResponse {
   operationPage: string;
+  command: string;
 }
 
 interface LightingPanelData {
@@ -716,16 +717,19 @@ export class Aiseg2Client {
     return {
       ...response,
       operationPage,
+      command,
     };
   }
 
   async stopShutter(device: ShutterDevice, token: string): Promise<ShutterOperationResponse> {
+    const command = '2';
     const operationPage = '325';
-    const response = await this.postShutterOperation(device, token, '2', operationPage);
+    const response = await this.postShutterOperation(device, token, command, operationPage);
 
     return {
       ...response,
       operationPage,
+      command,
     };
   }
 
@@ -742,7 +746,7 @@ export class Aiseg2Client {
         eoj: device.eoj,
         type: device.type,
         device: {
-          open: '2',
+          open,
         },
       }),
     });

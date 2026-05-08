@@ -37,7 +37,13 @@ export class ShutterAccessory {
       .onGet(() => this.state.currentPosition);
     this.service.getCharacteristic(this.platform.Characteristic.TargetPosition)
       .onSet(this.setTargetPosition.bind(this))
-      .onGet(() => this.state.targetPosition);
+      .onGet(() => this.state.targetPosition)
+      .setProps({
+        minValue: 0,
+        maxValue: 100,
+        minStep: this.platform.client.supportsShutterHalfOpen(this.device) ? 50 : 100,
+        validValues: this.platform.client.supportsShutterHalfOpen(this.device) ? [0, 50, 100] : [0, 100],
+      });
     this.service.getCharacteristic(this.platform.Characteristic.PositionState)
       .onGet(() => this.state.positionState);
     this.service.getCharacteristic(this.platform.Characteristic.HoldPosition)
@@ -95,7 +101,8 @@ export class ShutterAccessory {
       const token = await this.platform.client.getShutterControlToken();
       const response = await this.platform.client.changeShutterPosition(this.device, token, targetPosition);
       this.platform.log.info(
-        `${this.device.displayName} position request accepted: target=${targetPosition}%, acceptId=${response.acceptId ?? '-'}`,
+        `${this.device.displayName} position request accepted: target=${targetPosition}%, ` +
+        `command=${response.command}, page=${response.operationPage}, acceptId=${response.acceptId ?? '-'}`,
       );
       await this.waitForAcceptedChange(response, token);
 
@@ -124,7 +131,10 @@ export class ShutterAccessory {
     this.cancelPendingPosition();
     const token = await this.platform.client.getShutterControlToken();
     const response = await this.platform.client.stopShutter(this.device, token);
-    this.platform.log.info(`${this.device.displayName} stop request accepted: acceptId=${response.acceptId ?? '-'}`);
+    this.platform.log.info(
+      `${this.device.displayName} stop request accepted: command=${response.command}, ` +
+      `page=${response.operationPage}, acceptId=${response.acceptId ?? '-'}`,
+    );
     await this.waitForAcceptedChange(response, token);
 
     this.state.positionState = this.platform.Characteristic.PositionState.STOPPED;
@@ -247,11 +257,11 @@ export class ShutterAccessory {
   }
 
   private normalizeTargetPosition(requestedPosition: number): number {
-    if (requestedPosition <= 0) {
+    if (requestedPosition <= 25) {
       return 0;
     }
 
-    if (requestedPosition >= 100) {
+    if (requestedPosition >= 75) {
       return 100;
     }
 
