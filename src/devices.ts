@@ -54,6 +54,8 @@ export interface AirConditionerDevice extends Aiseg2Device {
   mode?: string;
   currentTemperature?: number;
   targetTemperature?: number;
+  currentHumidity?: number;
+  outdoorTemperature?: number;
 }
 
 export interface ShutterDevice extends Aiseg2Device {
@@ -71,9 +73,9 @@ export interface AirPurifierDevice extends Aiseg2Device {
 
 export interface AirEnvironmentSensorDevice extends Aiseg2Device {
   kind: 'airEnvironmentSensor';
-  roomName: string;
-  roomIndex: number;
+  deviceIndex: number;
   nodeIdentNum: string;
+  devId?: string;
   temperature?: number;
   humidity?: number;
 }

@@ -138,6 +138,13 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
 
     for (const device of devices) {
       this.log.info(`Discovered air conditioner '${device.displayName}'`);
+      const status = await this.client.getAirConditionerStatus(device);
+      device.state = status.state;
+      device.mode = status.mode;
+      device.currentTemperature = status.currentTemperature;
+      device.targetTemperature = status.targetTemperature;
+      device.currentHumidity = status.currentHumidity;
+      device.outdoorTemperature = status.outdoorTemperature;
       this.provisionDevice(device);
     }
   }

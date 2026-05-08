@@ -48,33 +48,35 @@ export class DoorLockAccessory {
     }, 30000);
   }
 
-  async updateStatus(): Promise<void> {
-    const status = await this.platform.client.getDoorLockStatus(this.device);
+  async updateStatus(force = false): Promise<void> {
+    const status = await this.platform.client.getDoorLockStatus(this.device, force);
     this.applyStatus(status);
   }
 
   async setTargetState(value: CharacteristicValue): Promise<void> {
     const targetState = Number(value);
     const desiredSecured = targetState === this.platform.Characteristic.LockTargetState.SECURED;
-    const status = await this.platform.client.getDoorLockStatus(this.device);
+    const status = await this.platform.client.getDoorLockStatus(this.device, true);
 
     if (status.secured === desiredSecured) {
       this.applyStatus(status);
       return;
     }
 
+    this.updateTargetState(desiredSecured);
+
     const token = await this.platform.client.getDoorLockControlToken();
     const response = await this.platform.client.changeDoorLock(this.device, token, status);
-    await this.waitForAcceptedChange(response, token);
+    this.assertAcceptedResponse(response);
 
-    this.state.currentState = desiredSecured
-      ? this.platform.Characteristic.LockCurrentState.SECURED
-      : this.platform.Characteristic.LockCurrentState.UNSECURED;
-    this.state.targetState = desiredSecured
-      ? this.platform.Characteristic.LockTargetState.SECURED
-      : this.platform.Characteristic.LockTargetState.UNSECURED;
-    this.service.updateCharacteristic(this.platform.Characteristic.LockCurrentState, this.state.currentState);
-    this.service.updateCharacteristic(this.platform.Characteristic.LockTargetState, this.state.targetState);
+    this.confirmTargetState(response, token, desiredSecured).catch(error => {
+      this.platform.log.error(`Failed to confirm door lock '${this.device.displayName}' state: ${this.formatError(error)}`);
+      this.updateStatus(true).catch(refreshError => {
+        this.platform.log.error(
+          `Failed to refresh door lock '${this.device.displayName}' after confirmation failure: ${this.formatError(refreshError)}`,
+        );
+      });
+    });
   }
 
   private applyStatus(status: DoorLockStatus): void {
@@ -92,10 +94,13 @@ export class DoorLockAccessory {
     this.service.updateCharacteristic(this.platform.Characteristic.LockTargetState, this.state.targetState);
   }
 
+  private async confirmTargetState(response: OperationResponse, token: string, desiredSecured: boolean): Promise<void> {
+    await this.waitForAcceptedChange(response, token);
+    await this.pollForDesiredState(desiredSecured);
+  }
+
   private async waitForAcceptedChange(response: OperationResponse, token: string): Promise<void> {
-    if (response.result !== undefined && String(response.result) !== CheckResult.OK) {
-      throw new Error(`${this.device.displayName} update submission failed: ${JSON.stringify(response)}`);
-    }
+    this.assertAcceptedResponse(response);
 
     const acceptId = Number(response.acceptId);
     if (!Number.isInteger(acceptId)) {
@@ -115,7 +120,47 @@ export class DoorLockAccessory {
       }
     }
 
-    throw new Error(`Timed out waiting for '${this.device.displayName}' to update`);
+    throw new Error(`Timed out waiting for '${this.device.displayName}' to accept update`);
+  }
+
+  private async pollForDesiredState(desiredSecured: boolean): Promise<void> {
+    for (let count = 0; count < 30; count++) {
+      await this.delay(1000);
+      const status = await this.platform.client.getDoorLockStatus(this.device, true);
+      this.applyCurrentState(status);
+
+      if (status.secured === desiredSecured) {
+        this.applyStatus(status);
+        return;
+      }
+    }
+
+    throw new Error(`Timed out waiting for '${this.device.displayName}' to report ${desiredSecured ? 'secured' : 'unsecured'}`);
+  }
+
+  private assertAcceptedResponse(response: OperationResponse): void {
+    if (response.result !== undefined && String(response.result) !== CheckResult.OK) {
+      throw new Error(`${this.device.displayName} update submission failed: ${JSON.stringify(response)}`);
+    }
+  }
+
+  private applyCurrentState(status: DoorLockStatus): void {
+    if (status.secured === true) {
+      this.state.currentState = this.platform.Characteristic.LockCurrentState.SECURED;
+    } else if (status.secured === false) {
+      this.state.currentState = this.platform.Characteristic.LockCurrentState.UNSECURED;
+    } else {
+      this.state.currentState = this.platform.Characteristic.LockCurrentState.UNKNOWN;
+    }
+
+    this.service.updateCharacteristic(this.platform.Characteristic.LockCurrentState, this.state.currentState);
+  }
+
+  private updateTargetState(secured: boolean): void {
+    this.state.targetState = secured
+      ? this.platform.Characteristic.LockTargetState.SECURED
+      : this.platform.Characteristic.LockTargetState.UNSECURED;
+    this.service.updateCharacteristic(this.platform.Characteristic.LockTargetState, this.state.targetState);
   }
 
   private delay(ms: number): Promise<void> {

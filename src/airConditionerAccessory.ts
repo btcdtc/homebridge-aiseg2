@@ -8,12 +8,16 @@ import { Aiseg2Platform } from './platform';
 export class AirConditionerAccessory {
   private readonly service: Service;
   private readonly device: AirConditionerDevice;
+  private indoorHumidityService?: Service;
+  private outdoorTemperatureService?: Service;
 
   private state = {
     currentHeatingCoolingState: 0,
     targetHeatingCoolingState: 0,
     currentTemperature: 20,
     targetTemperature: 25,
+    currentHumidity: undefined as number | undefined,
+    outdoorTemperature: undefined as number | undefined,
   };
 
   constructor(
@@ -21,6 +25,10 @@ export class AirConditionerAccessory {
     private readonly accessory: PlatformAccessory,
   ) {
     this.device = accessory.context.device as AirConditionerDevice;
+    this.state.currentTemperature = this.device.currentTemperature ?? this.state.currentTemperature;
+    this.state.targetTemperature = this.device.targetTemperature ?? this.state.targetTemperature;
+    this.state.currentHumidity = this.device.currentHumidity;
+    this.state.outdoorTemperature = this.device.outdoorTemperature;
 
     this.accessory.getService(this.platform.Service.AccessoryInformation)!
       .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Panasonic')
@@ -64,6 +72,8 @@ export class AirConditionerAccessory {
       this.platform.Characteristic.TemperatureDisplayUnits,
       this.platform.Characteristic.TemperatureDisplayUnits.CELSIUS,
     );
+
+    this.applySupplementalServices(this.device.currentHumidity, this.device.outdoorTemperature);
 
     this.updateStatus().catch(error => {
       this.platform.log.error(`Failed to update air conditioner '${this.device.displayName}': ${this.formatError(error)}`);
@@ -126,6 +136,14 @@ export class AirConditionerAccessory {
       this.state.targetTemperature = status.targetTemperature;
     }
 
+    if (status.currentHumidity !== undefined) {
+      this.state.currentHumidity = status.currentHumidity;
+    }
+
+    if (status.outdoorTemperature !== undefined) {
+      this.state.outdoorTemperature = status.outdoorTemperature;
+    }
+
     this.service.updateCharacteristic(
       this.platform.Characteristic.CurrentHeatingCoolingState,
       this.state.currentHeatingCoolingState,
@@ -136,6 +154,10 @@ export class AirConditionerAccessory {
     );
     this.service.updateCharacteristic(this.platform.Characteristic.CurrentTemperature, this.state.currentTemperature);
     this.service.updateCharacteristic(this.platform.Characteristic.TargetTemperature, this.state.targetTemperature);
+    if (this.state.currentHumidity !== undefined) {
+      this.service.updateCharacteristic(this.platform.Characteristic.CurrentRelativeHumidity, this.state.currentHumidity);
+    }
+    this.applySupplementalServices(this.state.currentHumidity, this.state.outdoorTemperature);
   }
 
   private currentHeatingCoolingState(status: AirConditionerStatus): number {
@@ -161,6 +183,40 @@ export class AirConditionerAccessory {
       default:
         return this.platform.Characteristic.TargetHeatingCoolingState.AUTO;
     }
+  }
+
+  private applySupplementalServices(currentHumidity: number | undefined, outdoorTemperature: number | undefined): void {
+    if (currentHumidity !== undefined) {
+      this.ensureIndoorHumidityService()
+        .updateCharacteristic(this.platform.Characteristic.CurrentRelativeHumidity, currentHumidity);
+    }
+
+    if (outdoorTemperature !== undefined) {
+      this.ensureOutdoorTemperatureService()
+        .updateCharacteristic(this.platform.Characteristic.CurrentTemperature, outdoorTemperature);
+    }
+  }
+
+  private ensureIndoorHumidityService(): Service {
+    if (!this.indoorHumidityService) {
+      const name = this.platform.formatHomeKitName(`${this.device.displayName} 室内湿度`);
+      this.indoorHumidityService = this.accessory.getServiceById(this.platform.Service.HumiditySensor, 'indoor-humidity') ||
+        this.accessory.addService(this.platform.Service.HumiditySensor, name, 'indoor-humidity');
+      this.indoorHumidityService.setCharacteristic(this.platform.Characteristic.Name, name);
+    }
+
+    return this.indoorHumidityService;
+  }
+
+  private ensureOutdoorTemperatureService(): Service {
+    if (!this.outdoorTemperatureService) {
+      const name = this.platform.formatHomeKitName(`${this.device.displayName} 室外温度`);
+      this.outdoorTemperatureService = this.accessory.getServiceById(this.platform.Service.TemperatureSensor, 'outdoor-temperature') ||
+        this.accessory.addService(this.platform.Service.TemperatureSensor, name, 'outdoor-temperature');
+      this.outdoorTemperatureService.setCharacteristic(this.platform.Characteristic.Name, name);
+    }
+
+    return this.outdoorTemperatureService;
   }
 
   private async waitForAcceptedChange(response: OperationResponse, token: string): Promise<void> {

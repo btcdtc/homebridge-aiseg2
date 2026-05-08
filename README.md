@@ -13,7 +13,7 @@
 This plugin supports the following AiSEG2 devices:
 
 * Panasonic Advance Series light switches as HomeKit Lightbulb accessories
-* AiSEG2 air conditioners as HomeKit Thermostat accessories
+* AiSEG2 air conditioners as HomeKit Thermostat accessories with indoor humidity and outdoor temperature sensor services
 * AiSEG2 shutters as HomeKit Window Covering accessories
 * AiSEG2 air purifiers as HomeKit Air Purifier accessories with separate automatic-mode switches and odor, PM2.5, and house dust Air Quality Sensor services
 * AiSEG2 air environment sensors as HomeKit Temperature Sensor and Humidity Sensor services

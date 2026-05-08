@@ -29,14 +29,14 @@ export class AirEnvironmentSensorAccessory {
       this.accessory.addService(this.platform.Service.TemperatureSensor);
     this.temperatureService.setCharacteristic(
       this.platform.Characteristic.Name,
-      this.platform.formatHomeKitName(`${this.device.roomName} 温度`),
+      this.platform.formatHomeKitName(`${this.device.displayName} 温度`),
     );
 
     this.humidityService = this.accessory.getService(this.platform.Service.HumiditySensor) ||
       this.accessory.addService(this.platform.Service.HumiditySensor);
     this.humidityService.setCharacteristic(
       this.platform.Characteristic.Name,
-      this.platform.formatHomeKitName(`${this.device.roomName} 湿度`),
+      this.platform.formatHomeKitName(`${this.device.displayName} 湿度`),
     );
 
     this.applyState(this.device.temperature, this.device.humidity);
