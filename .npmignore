@@ -6,6 +6,9 @@ src
 # gitHub actions
 .github
 
+# dev containers
+.devcontainer
+
 # eslint
 .eslintrc
 

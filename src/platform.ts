@@ -1,15 +1,14 @@
 import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, Service, Characteristic } from 'homebridge';
 
-import { request as HttpRequest } from 'urllib';
-import { load as LoadHtml } from 'cheerio';
-
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 import { LightingDevice, LightingAccessory } from './lightingAccessory';
+import { Aiseg2Client } from './aiseg2Client';
 
 
 export class Aiseg2Platform implements DynamicPlatformPlugin {
-  public readonly Service: typeof Service = this.api.hap.Service;
-  public readonly Characteristic: typeof Characteristic = this.api.hap.Characteristic;
+  public readonly Service: typeof Service;
+  public readonly Characteristic: typeof Characteristic;
+  public readonly client: Aiseg2Client;
 
   public readonly accessories: PlatformAccessory[] = [];
 
@@ -18,11 +17,16 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     public readonly config: PlatformConfig,
     public readonly api: API,
   ) {
+    this.Service = this.api.hap.Service;
+    this.Characteristic = this.api.hap.Characteristic;
+    this.client = new Aiseg2Client(String(this.config.host || ''), String(this.config.password || ''));
     this.log.debug('Finished initializing platform:', this.config.name);
 
     this.api.on('didFinishLaunching', () => {
       log.debug('Executed didFinishLaunching callback');
-      this.discoverDevices();
+      this.discoverDevices().catch(error => {
+        this.log.error(`Failed to discover AiSEG2 devices: ${this.formatError(error)}`);
+      });
     });
   }
 
@@ -32,105 +36,77 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   }
 
   // Discover the various AiSEG2 device types that are compatible with Homekit
-  discoverDevices() {
-    this.discoverLighting();
+  async discoverDevices(): Promise<void> {
+    await this.discoverLighting();
   }
 
   provisionDevice(device: LightingDevice) {
     const uuid = this.api.hap.uuid.generate(device.deviceId);
     const existingAccessory = this.accessories.find(accessory => accessory.UUID === uuid);
+    const homeKitName = this.formatHomeKitName(device.displayName);
 
     if (existingAccessory) {
       this.log.info('Restoring existing accessory from cache:', existingAccessory.displayName);
 
-      // if you need to update the accessory.context then you should run `api.updatePlatformAccessories`. eg.:
-      // existingAccessory.context.device = device;
-      // this.api.updatePlatformAccessories([existingAccessory]);
+      existingAccessory.context.device = device;
+      if (existingAccessory.displayName !== homeKitName) {
+        existingAccessory.updateDisplayName(homeKitName);
+      }
+      this.api.updatePlatformAccessories([existingAccessory]);
 
       new LightingAccessory(this, existingAccessory);
-
-      // it is possible to remove platform accessories at any time using `api.unregisterPlatformAccessories`, eg.:
-      // remove platform accessories when no longer present
-      // this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [existingAccessory]);
-      // this.log.info('Removing existing accessory from cache:', existingAccessory.displayName);
     } else {
       this.log.info('Adding new accessory:', device.displayName);
-      const accessory = new this.api.platformAccessory(device.displayName, uuid);
+      const accessory = new this.api.platformAccessory(homeKitName, uuid);
       accessory.context.device = device;
       new LightingAccessory(this, accessory);
       this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory]);
+      this.accessories.push(accessory);
     }
   }
 
   // Fetch all lighting devices from the AiSEG2 controller
-  discoverLighting() {
-    const url = `http://${this.config.host}/page/devices/device/32i1?page=1`;
+  async discoverLighting(): Promise<void> {
+    this.log.debug('Fetching lighting devices from AiSEG2');
+    const devices = await this.client.getLightingDevices();
 
-    const responseHandler = (err, data, res) => {
-      if (err) {
-        this.log.info(err);
+    for (const device of devices) {
+      this.log.info(`Discovered lighting device '${device.displayName}'`);
+      this.log.debug(JSON.stringify(device));
+
+      try {
+        await this.provisionLightingDevices(device);
+      } catch (error) {
+        this.log.error(`Failed to provision lighting device '${device.displayName}': ${this.formatError(error)}`);
       }
-
-      const $ = LoadHtml(data);
-      $('.panel').each((index, element) => {
-        const deviceData: LightingDevice = {
-          displayName: $($(element).find('.lighting_title')[0]).text() || '',
-          nodeId: $(element).attr('nodeid') || '',
-          eoj: $(element).attr('eoj') || '',
-          type: $(element).attr('type') || '',
-          nodeIdentNum: $(element).attr('nodeidentnum') || '',
-          deviceId: $(element).attr('deviceid') || '',
-        };
-
-        this.log.info(`Discovered lighting device '${deviceData.displayName}'`);
-        this.log.debug(JSON.stringify(deviceData));
-
-        this.provisionLightingDevices(deviceData);
-      });
-    };
-
-    this.log.debug(`Fetching lighting devices at ${url}`);
-    HttpRequest(url, {
-      method: 'GET',
-      rejectUnauthorized: false,
-      digestAuth: `aiseg:${this.config.password}`,
-    }, responseHandler);
+    }
   }
 
   // Provision a lighting device in Homebridge
-  provisionLightingDevices(deviceData: LightingDevice) {
-    const url = `http://${this.config.host}/data/devices/device/32i1/auto_update`;
-    const payload = `data={"page":"1","list":[${JSON.stringify(deviceData)}]}`;
+  async provisionLightingDevices(deviceData: LightingDevice): Promise<void> {
+    this.log.debug(`Fetching lighting device details for '${deviceData.displayName}'`);
+    const status = await this.client.getLightingStatus(deviceData);
 
-    const responseHandler = (err, data, res) => {
-      if (err) {
-        this.log.info(err);
-      }
-      const deviceInfo = JSON.parse(data);
-      this.log.debug(`Device info: ${data}`);
-      deviceData.state = deviceInfo.panelData[0].state;
-      if (deviceInfo.panelData[0].modulate_hidden === 'hidden') {
-        deviceData.dimmable = false;
-      } else {
-        deviceData.dimmable = true;
-        deviceData.brightness = deviceInfo.panelData[0].modulate_level;
-      }
+    deviceData.state = status.state ? 'on' : 'off';
+    deviceData.dimmable = status.dimmable;
+    deviceData.brightness = status.brightness;
 
-      this.log.debug(`Device data: ${JSON.stringify(deviceData)}`);
+    this.log.debug(`Device data: ${JSON.stringify(deviceData)}`);
+    this.provisionDevice(deviceData);
+  }
 
-      this.provisionDevice(deviceData);
-    };
+  private formatError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
 
-    this.log.debug(`Fetching lighting device details at ${url}`);
-    HttpRequest(url, {
-      method: 'POST',
-      rejectUnauthorized: false,
-      digestAuth: `aiseg:${this.config.password}`,
-      headers: {
-        'X-Requested-With': 'XMLHttpRequest',
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      data: payload,
-    }, responseHandler);
+  public formatHomeKitName(name: string): string {
+    const sanitizedName = name
+      .normalize('NFKC')
+      .replace(/[^\p{L}\p{N}' ]+/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+
+    return sanitizedName || 'AiSEG2 Light';
   }
 }
