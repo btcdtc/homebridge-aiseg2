@@ -12,10 +12,34 @@ enum AirPurifierMode {
   Medium = '0x43',
   Strong = '0x44',
   Turbo = '0x45',
+  Airy = '0x46',
+  Eco = '0x47',
 }
+
+const AUTO_MODE_SWITCHES = [
+  {
+    subtype: 'auto',
+    name: 'おまかせ',
+    mode: AirPurifierMode.Auto,
+  },
+  {
+    subtype: 'airy',
+    name: 'エアミー',
+    mode: AirPurifierMode.Airy,
+  },
+  {
+    subtype: 'eco',
+    name: '省エネ',
+    mode: AirPurifierMode.Eco,
+  },
+];
 
 export class AirPurifierAccessory {
   private readonly service: Service;
+  private readonly smellService: Service;
+  private readonly pm25Service: Service;
+  private readonly dustService: Service;
+  private readonly modeSwitchServices = new Map<AirPurifierMode, Service>();
   private readonly device: AirPurifierDevice;
 
   private state = {
@@ -23,6 +47,7 @@ export class AirPurifierAccessory {
     currentState: 0,
     targetState: 1,
     rotationSpeed: 0,
+    mode: AirPurifierMode.Stop,
   };
 
   constructor(
@@ -56,6 +81,16 @@ export class AirPurifierAccessory {
       })
       .onSet(this.setRotationSpeed.bind(this))
       .onGet(() => this.state.rotationSpeed);
+
+    this.smellService = this.getAirQualityService('smell', `${this.device.displayName} ニオイ`);
+    this.pm25Service = this.getAirQualityService('pm25', `${this.device.displayName} PM2.5`);
+    this.dustService = this.getAirQualityService('dust', `${this.device.displayName} ハウスダスト`);
+    for (const modeSwitch of AUTO_MODE_SWITCHES) {
+      this.modeSwitchServices.set(
+        modeSwitch.mode,
+        this.getModeSwitchService(modeSwitch.subtype, `${this.device.displayName} ${modeSwitch.name}`, modeSwitch.mode),
+      );
+    }
 
     this.updateStatus().catch(error => {
       this.platform.log.error(`Failed to update air purifier '${this.device.displayName}': ${this.formatError(error)}`);
@@ -94,6 +129,17 @@ export class AirPurifierAccessory {
     await this.setMode(this.modeFromRotationSpeed(speed));
   }
 
+  async setModeSwitch(mode: AirPurifierMode, value: CharacteristicValue): Promise<void> {
+    if (value) {
+      await this.setMode(mode);
+      return;
+    }
+
+    if (this.state.mode === mode) {
+      await this.setMode(AirPurifierMode.Stop);
+    }
+  }
+
   private async setMode(mode: AirPurifierMode): Promise<void> {
     const token = await this.platform.client.getAirPurifierControlToken(this.device);
     const response = await this.platform.client.changeAirPurifierMode(this.device, token, mode);
@@ -115,15 +161,20 @@ export class AirPurifierAccessory {
     this.state.currentState = status.active
       ? this.platform.Characteristic.CurrentAirPurifierState.PURIFYING_AIR
       : this.platform.Characteristic.CurrentAirPurifierState.INACTIVE;
-    this.state.targetState = status.mode === AirPurifierMode.Auto
+    this.state.targetState = this.isAutomaticMode(status.mode)
       ? this.platform.Characteristic.TargetAirPurifierState.AUTO
       : this.platform.Characteristic.TargetAirPurifierState.MANUAL;
     this.state.rotationSpeed = this.rotationSpeedFromMode(status.mode);
+    this.state.mode = this.modeFromStatus(status.mode);
 
     this.service.updateCharacteristic(this.platform.Characteristic.Active, this.state.active);
     this.service.updateCharacteristic(this.platform.Characteristic.CurrentAirPurifierState, this.state.currentState);
     this.service.updateCharacteristic(this.platform.Characteristic.TargetAirPurifierState, this.state.targetState);
     this.service.updateCharacteristic(this.platform.Characteristic.RotationSpeed, this.state.rotationSpeed);
+    this.updateAirQualityService(this.smellService, status.smellLevel);
+    this.updateAirQualityService(this.pm25Service, status.pm25Level);
+    this.updateAirQualityService(this.dustService, status.dustLevel);
+    this.updateModeSwitches();
   }
 
   private modeFromRotationSpeed(speed: number): AirPurifierMode {
@@ -156,8 +207,72 @@ export class AirPurifierAccessory {
         return 75;
       case AirPurifierMode.Turbo:
         return 100;
+      case AirPurifierMode.Auto:
+      case AirPurifierMode.Airy:
+      case AirPurifierMode.Eco:
+        return 50;
       default:
         return 0;
+    }
+  }
+
+  private isAutomaticMode(mode: string): boolean {
+    return mode === AirPurifierMode.Auto || mode === AirPurifierMode.Airy || mode === AirPurifierMode.Eco;
+  }
+
+  private modeFromStatus(mode: string): AirPurifierMode {
+    if (Object.values(AirPurifierMode).includes(mode as AirPurifierMode)) {
+      return mode as AirPurifierMode;
+    }
+
+    return AirPurifierMode.Stop;
+  }
+
+  private getAirQualityService(subtype: string, name: string): Service {
+    const service = this.accessory.getServiceById(this.platform.Service.AirQualitySensor, subtype) ||
+      this.accessory.addService(this.platform.Service.AirQualitySensor, this.platform.formatHomeKitName(name), subtype);
+    service.setCharacteristic(this.platform.Characteristic.Name, this.platform.formatHomeKitName(name));
+
+    return service;
+  }
+
+  private getModeSwitchService(subtype: string, name: string, mode: AirPurifierMode): Service {
+    const service = this.accessory.getServiceById(this.platform.Service.Switch, subtype) ||
+      this.accessory.addService(this.platform.Service.Switch, this.platform.formatHomeKitName(name), subtype);
+    service.setCharacteristic(this.platform.Characteristic.Name, this.platform.formatHomeKitName(name));
+    service.getCharacteristic(this.platform.Characteristic.On)
+      .onSet(this.setModeSwitch.bind(this, mode))
+      .onGet(() => this.state.mode === mode);
+
+    return service;
+  }
+
+  private updateModeSwitches(): void {
+    for (const [mode, service] of this.modeSwitchServices) {
+      service.updateCharacteristic(this.platform.Characteristic.On, this.state.mode === mode);
+    }
+  }
+
+  private updateAirQualityService(service: Service, level: number | undefined): void {
+    service.updateCharacteristic(this.platform.Characteristic.AirQuality, this.airQualityFromLevel(level));
+  }
+
+  private airQualityFromLevel(level: number | undefined): number {
+    if (level === undefined) {
+      return this.platform.Characteristic.AirQuality.UNKNOWN;
+    }
+
+    switch (Math.max(0, Math.min(4, level))) {
+      case 0:
+        return this.platform.Characteristic.AirQuality.EXCELLENT;
+      case 1:
+        return this.platform.Characteristic.AirQuality.GOOD;
+      case 2:
+        return this.platform.Characteristic.AirQuality.FAIR;
+      case 3:
+        return this.platform.Characteristic.AirQuality.INFERIOR;
+      default:
+        return this.platform.Characteristic.AirQuality.POOR;
     }
   }
 

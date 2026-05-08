@@ -5,6 +5,7 @@ import {
   Aiseg2DeviceSummary,
   Aiseg2DeviceType,
   AirConditionerDevice,
+  AirEnvironmentSensorDevice,
   AirPurifierDevice,
   ContactSensorDevice,
   DoorLockDevice,
@@ -47,6 +48,14 @@ export interface AirPurifierStatus {
   state: string;
   mode: string;
   active: boolean;
+  smellLevel?: number;
+  pm25Level?: number;
+  dustLevel?: number;
+}
+
+export interface AirEnvironmentStatus {
+  temperature?: number;
+  humidity?: number;
 }
 
 export interface DoorLockStatus {
@@ -126,7 +135,26 @@ interface AirPurifierPageData {
   airclean?: {
     mode?: string;
     type?: string;
+    dust?: string;
+    pm25?: string;
+    smell?: string;
   };
+}
+
+interface AirEnvironmentRoomData {
+  name: string;
+  array: AirEnvironmentRoomDevice[];
+}
+
+interface AirEnvironmentRoomDevice {
+  nodeId?: string;
+  eoj?: string;
+  type: string;
+  nodeIdentNum?: string;
+}
+
+interface AirEnvironmentAutoUpdateResponse {
+  dispInfo?: string[];
 }
 
 interface LockupStatusResponse {
@@ -196,6 +224,8 @@ const LOCKUP_CHECK_PATH = '/action/lockup/8/check';
 const FIRE_ALARM_AUTO_UPDATE_PATH = '/data/devices/device/32h/auto_update';
 const AIR_PURIFIER_OPERATION_PATH = '/action/devices/device/327/operation';
 const AIR_PURIFIER_STATUS_PATH = '/action/devices/device/327/get_operation_status';
+const AIR_ENVIRONMENT_PAGE_PATH = '/page/airenvironment/42?page=1';
+const AIR_ENVIRONMENT_AUTO_UPDATE_PATH = '/data/airenvironment/42/auto_update';
 
 const FORM_HEADERS = {
   'X-Requested-With': 'XMLHttpRequest',
@@ -206,6 +236,7 @@ export class Aiseg2Client {
   private lockupCache?: CachedValue<LockupStatusResponse>;
   private shutterCache?: CachedValue<ShutterPanelData[]>;
   private smokeCache = new Map<string, CachedValue<FireAlarmPageData>>();
+  private airEnvironmentCache = new Map<string, CachedValue<AirEnvironmentStatus>>();
 
   constructor(
     private readonly host: string,
@@ -298,6 +329,38 @@ export class Aiseg2Client {
           type: summary.type,
         }),
       }));
+  }
+
+  async getAirEnvironmentSensorDevices(): Promise<AirEnvironmentSensorDevice[]> {
+    const rooms = await this.getAirEnvironmentRooms();
+    const devices: AirEnvironmentSensorDevice[] = [];
+
+    rooms.forEach((room, roomIndex) => {
+      for (const roomDevice of room.array) {
+        if (roomDevice.type !== Aiseg2DeviceType.AirEnvironmentSensor || !roomDevice.nodeId || !roomDevice.eoj) {
+          continue;
+        }
+
+        devices.push({
+          kind: 'airEnvironmentSensor',
+          displayName: `${room.name} 温湿度`,
+          nodeId: roomDevice.nodeId,
+          eoj: roomDevice.eoj,
+          type: roomDevice.type,
+          roomName: room.name,
+          roomIndex,
+          nodeIdentNum: roomDevice.nodeIdentNum || '',
+          uuidSeed: uuidSeedFor({
+            kind: 'airEnvironmentSensor',
+            nodeId: roomDevice.nodeId,
+            eoj: roomDevice.eoj,
+            type: roomDevice.type,
+          }, room.name),
+        });
+      }
+    });
+
+    return devices;
   }
 
   async getDoorLockDevices(): Promise<DoorLockDevice[]> {
@@ -439,7 +502,34 @@ export class Aiseg2Client {
       state: page.state || '0x31',
       mode,
       active: page.state === '0x30' && mode !== '0x40',
+      smellLevel: this.parseAircleanLevel(page.airclean?.smell),
+      pm25Level: this.parseAircleanLevel(page.airclean?.pm25),
+      dustLevel: this.parseAircleanLevel(page.airclean?.dust),
     };
+  }
+
+  async getAirEnvironmentStatus(device: AirEnvironmentSensorDevice, force = false): Promise<AirEnvironmentStatus> {
+    const key = `${device.nodeId}:${device.eoj}:${device.roomIndex}`;
+    const now = Date.now();
+    const cached = this.airEnvironmentCache.get(key);
+    if (!force && cached && cached.expiresAt > now) {
+      return cached.value;
+    }
+
+    const rooms = await this.getAirEnvironmentRooms();
+    const response = await this.postJson<AirEnvironmentAutoUpdateResponse>(AIR_ENVIRONMENT_AUTO_UPDATE_PATH, {
+      device_Info: rooms,
+      roomIdx: device.roomIndex,
+      page: Math.floor(device.roomIndex / 3) + 1,
+    });
+    const value = this.parseAirEnvironmentStatus(response.dispInfo?.[0] || response.dispInfo?.[device.roomIndex] || '');
+
+    this.airEnvironmentCache.set(key, {
+      value,
+      expiresAt: now + 10000,
+    });
+
+    return value;
   }
 
   async getDoorLockStatus(device: DoorLockDevice): Promise<DoorLockStatus> {
@@ -729,6 +819,11 @@ export class Aiseg2Client {
     return this.extractInitArgument<AirPurifierPageData>(html, 0);
   }
 
+  private async getAirEnvironmentRooms(): Promise<AirEnvironmentRoomData[]> {
+    const html = await this.requestText(AIR_ENVIRONMENT_PAGE_PATH);
+    return this.extractScriptVariable<AirEnvironmentRoomData[]>(html, 'deviceInfo');
+  }
+
   private async getLockupStatus(force = false): Promise<LockupStatusResponse> {
     const now = Date.now();
     if (!force && this.lockupCache && this.lockupCache.expiresAt > now) {
@@ -909,6 +1004,15 @@ export class Aiseg2Client {
     return JSON.parse(argument) as T;
   }
 
+  private extractScriptVariable<T>(html: string, variableName: string): T {
+    const match = html.match(new RegExp(`var\\s+${variableName}\\s*=\\s*([^;]+);`));
+    if (!match) {
+      throw new Error(`AiSEG2 page did not include ${variableName} data`);
+    }
+
+    return JSON.parse(match[1]) as T;
+  }
+
   private extractTokenFromHtml(html: string): string {
     const $ = loadHtml(html);
     const token = $('#main').attr('token') ||
@@ -949,6 +1053,55 @@ export class Aiseg2Client {
     }
 
     return Number(match[1]);
+  }
+
+  private parseAircleanLevel(value: string | undefined): number | undefined {
+    if (!value) {
+      return undefined;
+    }
+
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      return numeric;
+    }
+
+    const hex = Number.parseInt(value, 16);
+    if (!Number.isFinite(hex)) {
+      return undefined;
+    }
+
+    return hex >= 0x30 ? hex - 0x30 : hex;
+  }
+
+  private parseAirEnvironmentStatus(html: string): AirEnvironmentStatus {
+    const $ = loadHtml(html);
+
+    return {
+      temperature: this.parseClassDigits($, '.num_ond'),
+      humidity: this.parseClassDigits($, '.num_shitudo'),
+    };
+  }
+
+  private parseClassDigits($: ReturnType<typeof loadHtml>, selector: string): number | undefined {
+    let value = '';
+
+    $(`${selector} .num, ${selector} .num_dot`).each((index, element) => {
+      const classes = $(element).attr('class') || '';
+      const digit = classes.match(/\bno(\d)\b/);
+
+      if (digit) {
+        value += digit[1];
+      } else if (classes.includes('num_dot')) {
+        value += '.';
+      }
+    });
+
+    if (!value) {
+      return undefined;
+    }
+
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
   }
 
   private shutterPosition(data: ShutterPanelData): number {

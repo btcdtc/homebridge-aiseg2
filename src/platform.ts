@@ -2,6 +2,7 @@ import { API, DynamicPlatformPlugin, Logger, PlatformAccessory, PlatformConfig, 
 
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
 import { AirConditionerAccessory } from './airConditionerAccessory';
+import { AirEnvironmentSensorAccessory } from './airEnvironmentSensorAccessory';
 import { AirPurifierAccessory } from './airPurifierAccessory';
 import { ContactSensorAccessory } from './contactSensorAccessory';
 import { DoorLockAccessory } from './doorLockAccessory';
@@ -48,6 +49,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     await this.discoverContactSensors();
     await this.discoverSmokeSensors();
     await this.discoverAirConditioners();
+    await this.discoverAirEnvironmentSensors();
     await this.discoverShutters();
     await this.discoverAirPurifiers();
     await this.discoverDoorLocks();
@@ -160,6 +162,19 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     }
   }
 
+  async discoverAirEnvironmentSensors(): Promise<void> {
+    this.log.debug('Fetching air environment sensors from AiSEG2');
+    const devices = await this.client.getAirEnvironmentSensorDevices();
+
+    for (const device of devices) {
+      this.log.info(`Discovered air environment sensor '${device.displayName}'`);
+      const status = await this.client.getAirEnvironmentStatus(device, true);
+      device.temperature = status.temperature;
+      device.humidity = status.humidity;
+      this.provisionDevice(device);
+    }
+  }
+
   async discoverDoorLocks(): Promise<void> {
     this.log.debug('Fetching door locks from AiSEG2');
     const devices = await this.client.getDoorLockDevices();
@@ -183,6 +198,9 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
         break;
       case 'airConditioner':
         new AirConditionerAccessory(this, accessory);
+        break;
+      case 'airEnvironmentSensor':
+        new AirEnvironmentSensorAccessory(this, accessory);
         break;
       case 'shutter':
         new ShutterAccessory(this, accessory);

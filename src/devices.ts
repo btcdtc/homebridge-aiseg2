@@ -5,6 +5,7 @@ export enum Aiseg2DeviceType {
   Lighting = '0x92',
   Shutter = '0x2b',
   AirPurifier = '0x48',
+  AirEnvironmentSensor = '0x0c',
   FireAlarm = '0x91',
   OpenCloseSensor = '0x11',
   WindowLockSensor = '0x14',
@@ -15,6 +16,7 @@ export type SupportedDeviceKind =
   | 'airConditioner'
   | 'shutter'
   | 'airPurifier'
+  | 'airEnvironmentSensor'
   | 'doorLock'
   | 'contactSensor'
   | 'smokeSensor';
@@ -67,6 +69,15 @@ export interface AirPurifierDevice extends Aiseg2Device {
   mode?: string;
 }
 
+export interface AirEnvironmentSensorDevice extends Aiseg2Device {
+  kind: 'airEnvironmentSensor';
+  roomName: string;
+  roomIndex: number;
+  nodeIdentNum: string;
+  temperature?: number;
+  humidity?: number;
+}
+
 export interface DoorLockDevice extends Aiseg2Device {
   kind: 'doorLock';
   lockVal?: string;
@@ -94,6 +105,7 @@ export type SupportedDevice =
   | AirConditionerDevice
   | ShutterDevice
   | AirPurifierDevice
+  | AirEnvironmentSensorDevice
   | DoorLockDevice
   | ContactSensorDevice
   | SmokeSensorDevice;
