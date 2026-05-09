@@ -23,6 +23,10 @@ This plugin supports the following AiSEG2 devices:
 
 All development and testing has been performed using an MKN704 controller. It is likely that the code will also work with the MKN705 and KMN713 controllers.
 
+## No Support
+
+This is a personal, vibe-coded Homebridge plugin. No support is provided. If you run into issues, fork it, debug it, and vibe code the fix yourself.
+
 ## Configuration
 
 To configure the plugin, supply the password used to login to the AiSEG2 web interface. Set `host` for a fixed controller IP, or

@@ -894,14 +894,21 @@ export class Aiseg2Client {
   }
 
   async changeAirPurifierMode(device: AirPurifierDevice, token: string, mode: string): Promise<OperationResponse> {
+    const state = mode === '0x40' ? '0x31' : '0x30';
     const response = await this.postJson<OperationResponse>(AIR_PURIFIER_OPERATION_PATH, {
       token,
       objSendData: JSON.stringify({
         nodeId: device.nodeId,
         eoj: device.eoj,
         type: device.type,
+        state,
         device: {
+          state,
           mode,
+        },
+        airclean: {
+          mode,
+          type: mode,
         },
       }),
     });

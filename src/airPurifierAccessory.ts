@@ -344,9 +344,11 @@ export class AirPurifierAccessory {
   }
 
   private getModeSwitchService(subtype: string, name: string, mode: AirPurifierMode): Service {
+    const formattedName = this.platform.formatHomeKitName(name);
     const service = this.accessory.getServiceById(this.platform.Service.Switch, subtype) ||
-      this.accessory.addService(this.platform.Service.Switch, this.platform.formatHomeKitName(name), subtype);
-    service.setCharacteristic(this.platform.Characteristic.Name, this.platform.formatHomeKitName(name));
+      this.accessory.addService(this.platform.Service.Switch, formattedName, subtype);
+    service.displayName = formattedName;
+    service.setCharacteristic(this.platform.Characteristic.Name, formattedName);
     service.getCharacteristic(this.platform.Characteristic.On)
       .onSet(this.setModeSwitch.bind(this, mode))
       .onGet(() => this.state.mode === mode);
