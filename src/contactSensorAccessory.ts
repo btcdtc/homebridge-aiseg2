@@ -19,14 +19,14 @@ export class ContactSensorAccessory {
   ) {
     this.device = accessory.context.device as ContactSensorDevice;
 
-    this.accessory.getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Panasonic')
-      .setCharacteristic(this.platform.Characteristic.Model, 'AiSEG2 Contact Sensor')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.device.uuidSeed);
+    this.platform.configureAccessoryInformation(this.accessory, 'AiSEG2 Contact Sensor', this.device.uuidSeed);
 
-    this.service = this.accessory.getService(this.platform.Service.ContactSensor) ||
-      this.accessory.addService(this.platform.Service.ContactSensor);
-    this.service.setCharacteristic(this.platform.Characteristic.Name, this.platform.formatHomeKitName(this.device.displayName));
+    const existingService = this.accessory.getService(this.platform.Service.ContactSensor);
+    const serviceName = this.platform.formatHomeKitName(this.device.displayName);
+    this.service = existingService || this.accessory.addService(this.platform.Service.ContactSensor, serviceName);
+    if (!existingService) {
+      this.service.setCharacteristic(this.platform.Characteristic.Name, serviceName);
+    }
     this.lockStateService = this.configureLockStateService(this.lockedFromValue(this.device.lockVal));
 
     this.applyState(
@@ -35,7 +35,7 @@ export class ContactSensorAccessory {
       this.lockedFromValue(this.device.lockVal),
     );
 
-    setInterval(() => {
+    this.platform.registerInterval(() => {
       this.updateContactState().catch(error => {
         this.platform.log.error(`Failed to update contact sensor '${this.device.displayName}': ${this.formatError(error)}`);
       });
@@ -80,10 +80,12 @@ export class ContactSensorAccessory {
         this.platform.formatHomeKitName(`${this.device.displayName} ロック`),
         'lock-state',
       );
-    service.setCharacteristic(
-      this.platform.Characteristic.Name,
-      this.platform.formatHomeKitName(`${this.device.displayName} ロック`),
-    );
+    if (!existingService) {
+      service.setCharacteristic(
+        this.platform.Characteristic.Name,
+        this.platform.formatHomeKitName(`${this.device.displayName} ロック`),
+      );
+    }
     service.getCharacteristic(this.platform.Characteristic.ContactSensorState)
       .onGet(() => this.state.lockContactState);
     this.platform.configureGroupedService(this.service, [service], true);

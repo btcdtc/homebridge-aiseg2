@@ -276,6 +276,9 @@ interface CachedValue<T> {
   value: T;
 }
 
+export type RequestPriority = 'normal' | 'action';
+type QueuedRequest = () => Promise<void>;
+
 const DEVICE_LIST_PATH = '/page/devices/device/32';
 const LIGHTING_PAGE_PATH = '/page/devices/device/32i1?page=1';
 const LIGHTING_AUTO_UPDATE_PATH = '/data/devices/device/32i1/auto_update';
@@ -299,6 +302,7 @@ const AIR_PURIFIER_OPERATION_PATH = '/action/devices/device/327/operation';
 const AIR_PURIFIER_STATUS_PATH = '/action/devices/device/327/get_operation_status';
 const AIR_ENVIRONMENT_DEVICE_PAGE_PATH = '/page/airenvironment/43';
 const AIR_ENVIRONMENT_DEVICE_AUTO_UPDATE_PATH = '/data/airenvironment/43/auto_update';
+const MAX_QUEUED_REQUESTS = 100;
 
 const FORM_HEADERS = {
   'X-Requested-With': 'XMLHttpRequest',
@@ -328,7 +332,9 @@ export class Aiseg2Client {
   private airEnvironmentStatusCache?: CachedValue<Map<string, AirEnvironmentStatus>>;
   private airEnvironmentStatusInflight?: Promise<Map<string, AirEnvironmentStatus>>;
   private pageTokenCache = new Map<string, CachedValue<string>>();
-  private requestQueue = Promise.resolve();
+  private readonly actionRequestQueue: QueuedRequest[] = [];
+  private readonly normalRequestQueue: QueuedRequest[] = [];
+  private activeRequestCount = 0;
 
   constructor(
     private readonly host: string,
@@ -561,8 +567,12 @@ export class Aiseg2Client {
     return devices;
   }
 
-  async getLightingStatus(device: LightingDevice, force = false): Promise<LightingStatus> {
-    const statuses = await this.getLightingPanelData(force);
+  async getLightingStatus(
+    device: LightingDevice,
+    force = false,
+    priority: RequestPriority = 'normal',
+  ): Promise<LightingStatus> {
+    const statuses = await this.getLightingPanelData(force, priority);
     const panel = statuses.find(item => item.deviceId === device.deviceId) ||
       statuses.find(item => item.nodeId === device.nodeId && item.eoj === device.eoj);
     if (!panel) {
@@ -585,8 +595,12 @@ export class Aiseg2Client {
     return status;
   }
 
-  async getAirConditionerStatus(device: AirConditionerDevice, force = false): Promise<AirConditionerStatus> {
-    const statuses = await this.getAirConditionerPanelData(force);
+  async getAirConditionerStatus(
+    device: AirConditionerDevice,
+    force = false,
+    priority: RequestPriority = 'normal',
+  ): Promise<AirConditionerStatus> {
+    const statuses = await this.getAirConditionerPanelData(force, priority);
     const panelStatus = statuses.find(item => item.nodeId === device.nodeId && item.eoj === device.eoj);
 
     if (!panelStatus) {
@@ -594,7 +608,7 @@ export class Aiseg2Client {
     }
 
     const detailStatus = force
-      ? await this.getAirConditionerDetailStatus(device, true).catch(() => undefined)
+      ? await this.getAirConditionerDetailStatus(device, true, priority).catch(() => undefined)
       : undefined;
     const modeItem = this.airConditionerModifyItem(detailStatus, 's_item_mode');
     const fanItem = this.airConditionerModifyItem(detailStatus, 's_img_ac');
@@ -635,8 +649,12 @@ export class Aiseg2Client {
     return request;
   }
 
-  async getShutterStatus(device: ShutterDevice, force = false): Promise<ShutterStatus> {
-    const statuses = await this.getShutterPanelData(force);
+  async getShutterStatus(
+    device: ShutterDevice,
+    force = false,
+    priority: RequestPriority = 'normal',
+  ): Promise<ShutterStatus> {
+    const statuses = await this.getShutterPanelData(force, priority);
     const status = statuses.find(item => item.nodeId === device.nodeId && item.eoj === device.eoj);
 
     if (!status) {
@@ -651,8 +669,12 @@ export class Aiseg2Client {
     };
   }
 
-  async getAirPurifierStatus(device: AirPurifierDevice, force = false): Promise<AirPurifierStatus> {
-    const page = await this.getAirPurifierPageData(device, force);
+  async getAirPurifierStatus(
+    device: AirPurifierDevice,
+    force = false,
+    priority: RequestPriority = 'normal',
+  ): Promise<AirPurifierStatus> {
+    const page = await this.getAirPurifierPageData(device, force, priority);
     const mode = page.airclean?.mode || '0x40';
 
     return {
@@ -670,8 +692,12 @@ export class Aiseg2Client {
     return statuses.get(this.airEnvironmentDeviceKey(device)) || {};
   }
 
-  async getDoorLockStatus(device: DoorLockDevice, force = false): Promise<DoorLockStatus> {
-    const status = await this.getLockupStatus(force);
+  async getDoorLockStatus(
+    device: DoorLockDevice,
+    force = false,
+    priority: RequestPriority = 'normal',
+  ): Promise<DoorLockStatus> {
+    const status = await this.getLockupStatus(force, priority);
     const lock = status.arrayElDevList.find(item => item.nodeId === device.nodeId && item.eoj === device.eoj);
 
     if (!lock) {
@@ -711,15 +737,15 @@ export class Aiseg2Client {
   }
 
   async getControlToken(): Promise<string> {
-    return this.getPageToken(LIGHTING_PAGE_PATH);
+    return this.getPageToken(LIGHTING_PAGE_PATH, false, 'action');
   }
 
   async getAirConditionerControlToken(): Promise<string> {
-    return this.getPageToken(AIRCON_PAGE_PATH);
+    return this.getPageToken(AIRCON_PAGE_PATH, false, 'action');
   }
 
   async getShutterControlToken(): Promise<string> {
-    return this.getPageToken(SHUTTER_PAGE_PATH);
+    return this.getPageToken(SHUTTER_PAGE_PATH, false, 'action');
   }
 
   supportsShutterHalfOpen(device: ShutterDevice): boolean {
@@ -733,17 +759,17 @@ export class Aiseg2Client {
   }
 
   async getDoorLockControlToken(): Promise<string> {
-    return this.getPageToken(LOCKUP_PAGE_PATH);
+    return this.getPageToken(LOCKUP_PAGE_PATH, false, 'action');
   }
 
-  async getPageToken(path: string, force = false): Promise<string> {
+  async getPageToken(path: string, force = false, priority: RequestPriority = 'normal'): Promise<string> {
     const now = Date.now();
     const cached = this.pageTokenCache.get(path);
     if (!force && cached && cached.expiresAt > now) {
       return cached.value;
     }
 
-    const html = await this.requestText(path);
+    const html = await this.requestText(path, {}, priority);
     const $ = loadHtml(html);
     const token = $('#main').attr('token') ||
       $('[token]').first().attr('token') ||
@@ -777,7 +803,7 @@ export class Aiseg2Client {
         onoff,
         modulate,
       },
-    });
+    }, 'action');
     this.lightingPanelCache = undefined;
     this.lightingPanelInflight = undefined;
 
@@ -795,7 +821,7 @@ export class Aiseg2Client {
       eoj: device.eoj,
       type: device.type,
       state: status.state,
-    });
+    }, 'action');
     this.airConditionerPanelCache = undefined;
     this.airConditionerPanelInflight = undefined;
 
@@ -832,7 +858,7 @@ export class Aiseg2Client {
     const response = await this.postJson<OperationResponse>(AIRCON_DETAIL_CHANGE_PATH, {
       ...this.airConditionerRequestParams(device),
       token,
-    });
+    }, 'action');
     this.airConditionerPanelCache = undefined;
     this.airConditionerPanelInflight = undefined;
     this.airConditionerDetailCache.delete(this.airConditionerKey(device));
@@ -886,7 +912,7 @@ export class Aiseg2Client {
           open,
         },
       }),
-    });
+    }, 'action');
     this.shutterCache = undefined;
     this.shutterInflight = undefined;
 
@@ -911,7 +937,7 @@ export class Aiseg2Client {
           type: mode,
         },
       }),
-    });
+    }, 'action');
     this.airPurifierCache.delete(this.airPurifierKey(device));
     this.airPurifierInflight.delete(this.airPurifierKey(device));
 
@@ -929,7 +955,7 @@ export class Aiseg2Client {
       eoj: device.eoj,
       type: device.type,
       state: status.statecmd,
-    });
+    }, 'action');
     this.lockupCache = undefined;
     this.lockupInflight = undefined;
 
@@ -940,7 +966,7 @@ export class Aiseg2Client {
     const response = await this.postJson<{ result?: CheckResult }>(LIGHTING_CHECK_PATH, {
       acceptId: String(acceptId),
       type: '0x92',
-    });
+    }, 'action');
 
     return this.requireCheckResult(response.result, acceptId);
   }
@@ -956,7 +982,7 @@ export class Aiseg2Client {
       nodeId: device.nodeId,
       eoj: device.eoj,
       token,
-    });
+    }, 'action');
 
     return this.requireCheckResult(response.result, acceptId);
   }
@@ -971,7 +997,7 @@ export class Aiseg2Client {
       acceptId: String(acceptId),
       type: device.type,
       token,
-    });
+    }, 'action');
 
     return this.requireCheckResult(response.result, acceptId);
   }
@@ -981,13 +1007,13 @@ export class Aiseg2Client {
       acceptId: String(acceptId),
       type: device.type,
       token,
-    });
+    }, 'action');
 
     return this.requireCheckResult(response.result, acceptId);
   }
 
   async checkDoorLockChange(acceptId: number, device: DoorLockDevice, token: string): Promise<CheckResult> {
-    const status = await this.getLockupStatus(true);
+    const status = await this.getLockupStatus(true, 'action');
     const elValidList = status.arrayElDevList
       .filter(lock => lock.cacheValid === '0x01')
       .map(lock => ({
@@ -1001,12 +1027,12 @@ export class Aiseg2Client {
       eoj: device.eoj,
       token,
       elValidList,
-    });
+    }, 'action');
 
     return this.requireCheckResult(response.result, acceptId);
   }
 
-  private async getLightingPanelData(force = false): Promise<LightingPanelData[]> {
+  private async getLightingPanelData(force = false, priority: RequestPriority = 'normal'): Promise<LightingPanelData[]> {
     const now = Date.now();
     if (!force && this.lightingPanelCache && this.lightingPanelCache.expiresAt > now) {
       return this.lightingPanelCache.value;
@@ -1016,14 +1042,14 @@ export class Aiseg2Client {
       return this.lightingPanelInflight;
     }
 
-    this.lightingPanelInflight = this.fetchLightingPanelData(now).finally(() => {
+    this.lightingPanelInflight = this.fetchLightingPanelData(now, priority).finally(() => {
       this.lightingPanelInflight = undefined;
     });
 
     return this.lightingPanelInflight;
   }
 
-  private async getAirConditionerPanelData(force = false): Promise<AirConditionerPanelData[]> {
+  private async getAirConditionerPanelData(force = false, priority: RequestPriority = 'normal'): Promise<AirConditionerPanelData[]> {
     const now = Date.now();
     if (!force && this.airConditionerPanelCache && this.airConditionerPanelCache.expiresAt > now) {
       return this.airConditionerPanelCache.value;
@@ -1033,19 +1059,19 @@ export class Aiseg2Client {
       return this.airConditionerPanelInflight;
     }
 
-    this.airConditionerPanelInflight = this.fetchAirConditionerPanelData(now).finally(() => {
+    this.airConditionerPanelInflight = this.fetchAirConditionerPanelData(now, priority).finally(() => {
       this.airConditionerPanelInflight = undefined;
     });
 
     return this.airConditionerPanelInflight;
   }
 
-  private async fetchLightingPanelData(now: number): Promise<LightingPanelData[]> {
+  private async fetchLightingPanelData(now: number, priority: RequestPriority): Promise<LightingPanelData[]> {
     const devices = await this.getLightingDevices();
     const response = await this.postJson<LightingAutoUpdateResponse>(LIGHTING_AUTO_UPDATE_PATH, {
       page: '1',
       list: devices.map(device => this.lightingRequestDevice(device)),
-    });
+    }, priority);
     const value = response.panelData || [];
 
     this.lightingPanelCache = {
@@ -1056,7 +1082,7 @@ export class Aiseg2Client {
     return value;
   }
 
-  private async fetchAirConditionerPanelData(now: number): Promise<AirConditionerPanelData[]> {
+  private async fetchAirConditionerPanelData(now: number, priority: RequestPriority): Promise<AirConditionerPanelData[]> {
     const devices = await this.getAirConditionerDevices();
     const response = await this.postJson<AirConditionerAutoUpdateResponse>(AIRCON_AUTO_UPDATE_PATH, {
       page: '1',
@@ -1066,7 +1092,7 @@ export class Aiseg2Client {
         eoj: device.eoj,
         type: device.type,
       })),
-    });
+    }, priority);
     const value = response.links || [];
 
     this.airConditionerPanelCache = {
@@ -1080,6 +1106,7 @@ export class Aiseg2Client {
   private async getAirConditionerDetailStatus(
     device: AirConditionerDevice,
     force = false,
+    priority: RequestPriority = 'normal',
   ): Promise<AirConditionerDetailUpdateResponse> {
     const key = this.airConditionerKey(device);
     const now = Date.now();
@@ -1093,7 +1120,7 @@ export class Aiseg2Client {
       return inflight;
     }
 
-    const request = this.fetchAirConditionerDetailStatus(device, key, now).finally(() => {
+    const request = this.fetchAirConditionerDetailStatus(device, key, now, priority).finally(() => {
       this.airConditionerDetailInflight.delete(key);
     });
     this.airConditionerDetailInflight.set(key, request);
@@ -1105,10 +1132,12 @@ export class Aiseg2Client {
     device: AirConditionerDevice,
     key: string,
     now: number,
+    priority: RequestPriority,
   ): Promise<AirConditionerDetailUpdateResponse> {
     const value = await this.postJson<AirConditionerDetailUpdateResponse>(
       AIRCON_DETAIL_UPDATE_PATH,
       this.airConditionerRequestParams(device),
+      priority,
     );
 
     this.airConditionerDetailCache.set(key, {
@@ -1148,7 +1177,7 @@ export class Aiseg2Client {
     return capabilities;
   }
 
-  private async getShutterPanelData(force = false): Promise<ShutterPanelData[]> {
+  private async getShutterPanelData(force = false, priority: RequestPriority = 'normal'): Promise<ShutterPanelData[]> {
     const now = Date.now();
     if (!force && this.shutterCache && this.shutterCache.expiresAt > now) {
       return this.shutterCache.value;
@@ -1158,15 +1187,15 @@ export class Aiseg2Client {
       return this.shutterInflight;
     }
 
-    this.shutterInflight = this.fetchShutterPanelData(now).finally(() => {
+    this.shutterInflight = this.fetchShutterPanelData(now, priority).finally(() => {
       this.shutterInflight = undefined;
     });
 
     return this.shutterInflight;
   }
 
-  private async fetchShutterPanelData(now: number): Promise<ShutterPanelData[]> {
-    const html = await this.requestText(SHUTTER_PAGE_PATH);
+  private async fetchShutterPanelData(now: number, priority: RequestPriority): Promise<ShutterPanelData[]> {
+    const html = await this.requestText(SHUTTER_PAGE_PATH, {}, priority);
     let panelData = this.extractInitArgument<ShutterPanelData[]>(html, 0);
 
     try {
@@ -1178,7 +1207,7 @@ export class Aiseg2Client {
           eoj: device.eoj,
           type: device.type,
         }))),
-      });
+      }, priority);
 
       if (response.arrayControlDevInfo) {
         panelData = JSON.parse(response.arrayControlDevInfo) as ShutterPanelData[];
@@ -1195,7 +1224,11 @@ export class Aiseg2Client {
     return panelData;
   }
 
-  private async getAirPurifierPageData(device: AirPurifierDevice, force = false): Promise<AirPurifierPageData> {
+  private async getAirPurifierPageData(
+    device: AirPurifierDevice,
+    force = false,
+    priority: RequestPriority = 'normal',
+  ): Promise<AirPurifierPageData> {
     const key = this.airPurifierKey(device);
     const now = Date.now();
     const cached = this.airPurifierCache.get(key);
@@ -1208,7 +1241,7 @@ export class Aiseg2Client {
       return inflight;
     }
 
-    const request = this.fetchAirPurifierPageData(device, key, now).finally(() => {
+    const request = this.fetchAirPurifierPageData(device, key, now, priority).finally(() => {
       this.airPurifierInflight.delete(key);
     });
     this.airPurifierInflight.set(key, request);
@@ -1216,9 +1249,16 @@ export class Aiseg2Client {
     return request;
   }
 
-  private async fetchAirPurifierPageData(device: AirPurifierDevice, key: string, now: number): Promise<AirPurifierPageData> {
+  private async fetchAirPurifierPageData(
+    device: AirPurifierDevice,
+    key: string,
+    now: number,
+    priority: RequestPriority,
+  ): Promise<AirPurifierPageData> {
     const html = await this.requestText(
       `/page/devices/device/327?track=32&page=2&nodeid=${device.nodeId}&eoj=${device.eoj}&devtype=${device.type}`,
+      {},
+      priority,
     );
 
     const value = this.extractInitArgument<AirPurifierPageData>(html, 0);
@@ -1282,7 +1322,7 @@ export class Aiseg2Client {
     return value;
   }
 
-  private async getLockupStatus(force = false): Promise<LockupStatusResponse> {
+  private async getLockupStatus(force = false, priority: RequestPriority = 'normal'): Promise<LockupStatusResponse> {
     const now = Date.now();
     if (!force && this.lockupCache && this.lockupCache.expiresAt > now) {
       return this.lockupCache.value;
@@ -1292,15 +1332,15 @@ export class Aiseg2Client {
       return this.lockupInflight;
     }
 
-    this.lockupInflight = this.fetchLockupStatus(now).finally(() => {
+    this.lockupInflight = this.fetchLockupStatus(now, priority).finally(() => {
       this.lockupInflight = undefined;
     });
 
     return this.lockupInflight;
   }
 
-  private async fetchLockupStatus(now: number): Promise<LockupStatusResponse> {
-    const html = await this.requestText(LOCKUP_PAGE_PATH);
+  private async fetchLockupStatus(now: number, priority: RequestPriority): Promise<LockupStatusResponse> {
+    const html = await this.requestText(LOCKUP_PAGE_PATH, {}, priority);
     const pageStatus = this.extractInitArgument<LockupStatusResponse>(html, 0);
     const elValidList = pageStatus.arrayElDevList
       .filter(lock => lock.cacheValid === '0x01')
@@ -1311,7 +1351,7 @@ export class Aiseg2Client {
 
     const value = await this.postJson<LockupStatusResponse>(LOCKUP_AUTO_UPDATE_PATH, {
       elValidList,
-    });
+    }, priority);
 
     this.lockupCache = {
       value,
@@ -1380,7 +1420,7 @@ export class Aiseg2Client {
       setting_type: settingType,
       value,
       request_by_form: '1',
-    });
+    }, 'action');
     const token = this.extractTokenFromHtml(html);
 
     if (!this.airConditionerPreparedSettingMatched(html, settingType, value)) {
@@ -1392,7 +1432,7 @@ export class Aiseg2Client {
     return token;
   }
 
-  private async requestText(path: string, options: RequestOptions = {}): Promise<string> {
+  private async requestText(path: string, options: RequestOptions = {}, priority: RequestPriority = 'normal'): Promise<string> {
     return this.runQueuedRequest(async () => {
       const response = await httpRequest<string>(this.url(path), {
         ...this.baseOptions(),
@@ -1402,10 +1442,10 @@ export class Aiseg2Client {
 
       this.assertSuccessfulResponse(path, response.status);
       return response.data;
-    });
+    }, priority);
   }
 
-  private async postJson<T>(path: string, data: unknown): Promise<T> {
+  private async postJson<T>(path: string, data: unknown, priority: RequestPriority = 'normal'): Promise<T> {
     return this.runQueuedRequest(async () => {
       const response = await httpRequest<T>(this.url(path), {
         ...this.baseOptions(),
@@ -1417,7 +1457,7 @@ export class Aiseg2Client {
 
       this.assertSuccessfulResponse(path, response.status);
       return response.data;
-    });
+    }, priority);
   }
 
   private baseOptions(): RequestOptions {
@@ -1427,17 +1467,49 @@ export class Aiseg2Client {
     };
   }
 
-  private async runQueuedRequest<T>(request: () => Promise<T>): Promise<T> {
-    const queued = this.requestQueue.then(request, request);
-    this.requestQueue = queued.then(
-      () => undefined,
-      () => undefined,
-    );
+  private async runQueuedRequest<T>(request: () => Promise<T>, priority: RequestPriority): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const queuedRequest = async () => {
+        try {
+          resolve(await request());
+        } catch (error) {
+          reject(error);
+        }
+      };
 
-    return queued;
+      const queue = priority === 'action' ? this.actionRequestQueue : this.normalRequestQueue;
+      if (queue.length >= MAX_QUEUED_REQUESTS) {
+        reject(new Error(`AiSEG2 ${priority} request queue is full`));
+        return;
+      }
+
+      queue.push(queuedRequest);
+      this.drainRequestQueue();
+    });
   }
 
-  private async postFormText(path: string, data: Record<string, string>): Promise<string> {
+  private drainRequestQueue(): void {
+    if (this.activeRequestCount > 0) {
+      return;
+    }
+
+    const nextRequest = this.actionRequestQueue.shift() || this.normalRequestQueue.shift();
+    if (!nextRequest) {
+      return;
+    }
+
+    this.activeRequestCount++;
+    void nextRequest().finally(() => {
+      this.activeRequestCount--;
+      this.drainRequestQueue();
+    });
+  }
+
+  private async postFormText(
+    path: string,
+    data: Record<string, string>,
+    priority: RequestPriority = 'normal',
+  ): Promise<string> {
     return this.runQueuedRequest(async () => {
       const response = await httpRequest<string>(this.url(path), {
         ...this.baseOptions(),
@@ -1451,7 +1523,7 @@ export class Aiseg2Client {
 
       this.assertSuccessfulResponse(path, response.status);
       return response.data;
-    });
+    }, priority);
   }
 
   private formPayload(data: unknown): string {

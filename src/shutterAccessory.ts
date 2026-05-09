@@ -25,14 +25,14 @@ export class ShutterAccessory {
   ) {
     this.device = accessory.context.device as ShutterDevice;
 
-    this.accessory.getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Panasonic')
-      .setCharacteristic(this.platform.Characteristic.Model, 'AiSEG2 Shutter')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.device.uuidSeed);
+    this.platform.configureAccessoryInformation(this.accessory, 'AiSEG2 Shutter', this.device.uuidSeed);
 
-    this.service = this.accessory.getService(this.platform.Service.WindowCovering) ||
-      this.accessory.addService(this.platform.Service.WindowCovering);
-    this.service.setCharacteristic(this.platform.Characteristic.Name, this.platform.formatHomeKitName(this.device.displayName));
+    const existingService = this.accessory.getService(this.platform.Service.WindowCovering);
+    const serviceName = this.platform.formatHomeKitName(this.device.displayName);
+    this.service = existingService || this.accessory.addService(this.platform.Service.WindowCovering, serviceName);
+    if (!existingService) {
+      this.service.setCharacteristic(this.platform.Characteristic.Name, serviceName);
+    }
 
     this.service.getCharacteristic(this.platform.Characteristic.CurrentPosition)
       .onGet(() => this.state.currentPosition);
@@ -57,7 +57,7 @@ export class ShutterAccessory {
       position: this.positionFromDevice(),
     });
 
-    setInterval(() => {
+    this.platform.registerInterval(() => {
       this.updateStatus().catch(error => {
         this.platform.log.error(`Failed to update shutter '${this.device.displayName}': ${this.formatError(error)}`);
       });
@@ -65,14 +65,14 @@ export class ShutterAccessory {
   }
 
   async updateStatus(force = false): Promise<void> {
-    const status = await this.platform.client.getShutterStatus(this.device, force);
+    const status = await this.platform.client.getShutterStatus(this.device, force, force ? 'action' : 'normal');
     this.applyStatus(status);
   }
 
   async setTargetPosition(value: CharacteristicValue): Promise<void> {
     const requestedPosition = Math.max(0, Math.min(100, Number(value)));
     if (!Number.isFinite(requestedPosition)) {
-      throw new Error(`Invalid shutter target position '${value}'`);
+      throw this.platform.invalidValueError();
     }
 
     const targetPosition = this.normalizeTargetPosition(requestedPosition);
@@ -124,7 +124,7 @@ export class ShutterAccessory {
       this.clearPendingPosition(actionId);
       await this.updateStatus(true);
       this.runQueuedTargetPosition();
-      throw error;
+      throw this.platform.homeKitError(error);
     }
   }
 
@@ -172,13 +172,17 @@ export class ShutterAccessory {
     this.platform.log.info(`${this.device.displayName} stop request`);
     this.cancelPendingPosition();
     this.queuedTargetPosition = undefined;
-    const token = await this.platform.client.getShutterControlToken();
-    const response = await this.platform.client.stopShutter(this.device, token);
-    this.platform.log.info(
-      `${this.device.displayName} stop request accepted: command=${response.command}, ` +
-      `page=${response.operationPage}, acceptId=${response.acceptId ?? '-'}`,
-    );
-    await this.waitForAcceptedChange(response, token);
+    try {
+      const token = await this.platform.client.getShutterControlToken();
+      const response = await this.platform.client.stopShutter(this.device, token);
+      this.platform.log.info(
+        `${this.device.displayName} stop request accepted: command=${response.command}, ` +
+        `page=${response.operationPage}, acceptId=${response.acceptId ?? '-'}`,
+      );
+      await this.waitForAcceptedChange(response, token);
+    } catch (error) {
+      throw this.platform.homeKitError(error);
+    }
 
     this.state.positionState = this.platform.Characteristic.PositionState.STOPPED;
     this.service.updateCharacteristic(this.platform.Characteristic.PositionState, this.state.positionState);
@@ -238,7 +242,7 @@ export class ShutterAccessory {
 
   private async waitForAcceptedChange(response: ShutterOperationResponse, token: string): Promise<void> {
     if (response.result !== undefined && String(response.result) !== CheckResult.OK) {
-      throw new Error(`${this.device.displayName} update submission failed: ${JSON.stringify(response)}`);
+      throw new Error(`${this.device.displayName} update submission failed: ${this.platform.safeJson(response)}`);
     }
 
     const acceptId = Number(response.acceptId);
@@ -275,7 +279,7 @@ export class ShutterAccessory {
         return;
       }
 
-      const status = await this.platform.client.getShutterStatus(this.device, true);
+      const status = await this.platform.client.getShutterStatus(this.device, true, 'action');
       if (actionId !== this.positionActionSequence || this.queuedTargetPosition !== undefined) {
         return;
       }

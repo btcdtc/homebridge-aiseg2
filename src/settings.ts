@@ -7,3 +7,8 @@ export const PLATFORM_NAME = 'AiSEG2';
  * This must match the name of your plugin as defined the package.json
  */
 export const PLUGIN_NAME = 'homebridge-aiseg2';
+
+/**
+ * Keep this in sync with package.json for HomeKit FirmwareRevision.
+ */
+export const PLUGIN_VERSION = '0.9.14';

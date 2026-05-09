@@ -8,9 +8,10 @@ import {
   Service,
   Characteristic,
   Categories,
+  APIEvent,
 } from 'homebridge';
 
-import { PLATFORM_NAME, PLUGIN_NAME } from './settings';
+import { PLATFORM_NAME, PLUGIN_NAME, PLUGIN_VERSION } from './settings';
 import { discoverAiseg2Controller, localDiscoverySubnets } from './aiseg2Discovery';
 import { AirConditionerAccessory } from './airConditionerAccessory';
 import { AirEnvironmentSensorAccessory } from './airEnvironmentSensorAccessory';
@@ -27,9 +28,11 @@ import { LightingDevice, SupportedDevice, SupportedDeviceKind } from './devices'
 export class Aiseg2Platform implements DynamicPlatformPlugin {
   public readonly Service: typeof Service;
   public readonly Characteristic: typeof Characteristic;
-  public client: Aiseg2Client;
+  public client!: Aiseg2Client;
 
   public readonly accessories: PlatformAccessory[] = [];
+  private readonly intervalHandles = new Set<ReturnType<typeof setInterval>>();
+  private discoveredAccessoryUUIDs = new Set<string>();
 
   constructor(
     public readonly log: Logger,
@@ -38,14 +41,17 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   ) {
     this.Service = this.api.hap.Service;
     this.Characteristic = this.api.hap.Characteristic;
-    this.client = new Aiseg2Client(this.configuredHost, this.password);
     this.log.debug('Finished initializing platform:', this.config.name);
 
-    this.api.on('didFinishLaunching', () => {
+    this.api.on(APIEvent.DID_FINISH_LAUNCHING, () => {
       log.debug('Executed didFinishLaunching callback');
       this.discoverDevices().catch(error => {
         this.log.error(`Failed to discover AiSEG2 devices: ${this.formatError(error)}`);
       });
+    });
+
+    this.api.on(APIEvent.SHUTDOWN, () => {
+      this.shutdown();
     });
   }
 
@@ -58,6 +64,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   // Discover the various AiSEG2 device types that are compatible with Homekit
   async discoverDevices(): Promise<void> {
     await this.resolveClient();
+    this.discoveredAccessoryUUIDs = new Set<string>();
     await this.discoverLighting();
     await this.discoverContactSensors();
     await this.discoverSmokeSensors();
@@ -66,10 +73,11 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     await this.discoverShutters();
     await this.discoverAirPurifiers();
     await this.discoverDoorLocks();
+    this.unregisterStaleAccessories();
   }
 
   provisionDevice(device: SupportedDevice) {
-    const uuid = this.api.hap.uuid.generate(device.uuidSeed);
+    const uuid = this.markDeviceSeen(device);
     const existingAccessory = this.accessories.find(accessory => accessory.UUID === uuid);
     const homeKitName = this.formatHomeKitName(device.displayName);
 
@@ -104,6 +112,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     const devices = await this.client.getLightingDevices();
 
     for (const device of devices) {
+      this.markDeviceSeen(device);
       this.log.info(`Discovered lighting device '${device.displayName}'`);
       this.log.debug(JSON.stringify(device));
 
@@ -133,6 +142,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     const devices = await this.client.getContactSensorDevices();
 
     for (const device of devices) {
+      this.markDeviceSeen(device);
       this.log.info(`Discovered contact sensor '${device.displayName}'`);
       this.provisionDevice(device);
     }
@@ -143,6 +153,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     const devices = await this.client.getSmokeSensorDevices();
 
     for (const device of devices) {
+      this.markDeviceSeen(device);
       this.log.info(`Discovered smoke sensor '${device.displayName}'`);
       this.provisionDevice(device);
     }
@@ -153,6 +164,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     const devices = await this.client.getAirConditionerDevices();
 
     for (const device of devices) {
+      this.markDeviceSeen(device);
       this.log.info(`Discovered air conditioner '${device.displayName}'`);
       const capabilities = await this.client.getAirConditionerCapabilities(device);
       const status = await this.client.getAirConditionerStatus(device, true);
@@ -178,6 +190,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     const devices = await this.client.getShutterDevices();
 
     for (const device of devices) {
+      this.markDeviceSeen(device);
       this.log.info(`Discovered shutter '${device.displayName}'`);
       this.provisionDevice(device);
     }
@@ -188,6 +201,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     const devices = await this.client.getAirPurifierDevices();
 
     for (const device of devices) {
+      this.markDeviceSeen(device);
       this.log.info(`Discovered air purifier '${device.displayName}'`);
       this.provisionDevice(device);
     }
@@ -198,6 +212,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     const devices = await this.client.getAirEnvironmentSensorDevices();
 
     for (const device of devices) {
+      this.markDeviceSeen(device);
       this.log.info(`Discovered air environment sensor '${device.displayName}'`);
       const status = await this.client.getAirEnvironmentStatus(device, true);
       device.temperature = status.temperature;
@@ -211,6 +226,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     const devices = await this.client.getDoorLockDevices();
 
     for (const device of devices) {
+      this.markDeviceSeen(device);
       this.log.info(`Discovered door lock '${device.displayName}'`);
       this.provisionDevice(device);
     }
@@ -311,6 +327,40 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     }
   }
 
+  public configureAccessoryInformation(accessory: PlatformAccessory, model: string, serialNumber: string): void {
+    accessory.getService(this.Service.AccessoryInformation)!
+      .setCharacteristic(this.Characteristic.Manufacturer, 'Panasonic')
+      .setCharacteristic(this.Characteristic.Model, model)
+      .setCharacteristic(this.Characteristic.SerialNumber, serialNumber)
+      .setCharacteristic(this.Characteristic.FirmwareRevision, PLUGIN_VERSION);
+  }
+
+  public registerInterval(callback: () => void, delayMs: number): ReturnType<typeof setInterval> {
+    const handle = setInterval(callback, delayMs);
+    this.intervalHandles.add(handle);
+    return handle;
+  }
+
+  public invalidValueError(): Error {
+    return new this.api.hap.HapStatusError(this.api.hap.HAPStatus.INVALID_VALUE_IN_REQUEST);
+  }
+
+  public communicationError(): Error {
+    return new this.api.hap.HapStatusError(this.api.hap.HAPStatus.SERVICE_COMMUNICATION_FAILURE);
+  }
+
+  public homeKitError(error: unknown): Error {
+    if (error instanceof this.api.hap.HapStatusError) {
+      return error;
+    }
+
+    return this.communicationError();
+  }
+
+  public safeJson(value: unknown): string {
+    return JSON.stringify(value, (key, entry) => key.toLowerCase().includes('token') ? '[redacted]' : entry);
+  }
+
   private configBoolean(key: string, defaultValue: boolean): boolean {
     const value = this.config[key];
     return typeof value === 'boolean' ? value : defaultValue;
@@ -334,6 +384,43 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     const result = await discoverAiseg2Controller(this.password);
     this.log.info(`Auto discovered AiSEG2 controller at ${result.host} on ${result.interfaceName} ${result.subnet}`);
     this.client = new Aiseg2Client(result.host, this.password);
+  }
+
+  private markDeviceSeen(device: SupportedDevice): string {
+    const uuid = this.api.hap.uuid.generate(device.uuidSeed);
+    this.discoveredAccessoryUUIDs.add(uuid);
+    return uuid;
+  }
+
+  private unregisterStaleAccessories(): void {
+    const staleAccessories = this.accessories.filter(accessory => !this.discoveredAccessoryUUIDs.has(accessory.UUID));
+    if (staleAccessories.length === 0) {
+      return;
+    }
+
+    for (const accessory of staleAccessories) {
+      const device = accessory.context.device as SupportedDevice | undefined;
+      this.log.info(`Removing stale accessory from cache: ${device?.displayName || accessory.displayName}`);
+    }
+
+    this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, staleAccessories);
+    for (const accessory of staleAccessories) {
+      const index = this.accessories.indexOf(accessory);
+      if (index >= 0) {
+        this.accessories.splice(index, 1);
+      }
+    }
+  }
+
+  private shutdown(): void {
+    for (const handle of this.intervalHandles) {
+      clearInterval(handle);
+    }
+
+    if (this.intervalHandles.size > 0) {
+      this.log.debug(`Cleared ${this.intervalHandles.size} AiSEG2 polling interval(s)`);
+    }
+    this.intervalHandles.clear();
   }
 
   private get configuredHost(): string {

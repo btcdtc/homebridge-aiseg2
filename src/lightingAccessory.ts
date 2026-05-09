@@ -44,21 +44,19 @@ export class LightingAccessory {
     this.actionQueue = new LatestActionQueue(this.performLightingAction.bind(this));
 
     // set accessory information
-    this.accessory.getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Panasonic')
-      .setCharacteristic(this.platform.Characteristic.Model, 'Default-Model')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, 'Default-Serial');
+    this.platform.configureAccessoryInformation(this.accessory, 'AiSEG2 Lighting', deviceData.uuidSeed || deviceData.deviceId);
 
     // get the LightBulb service if it exists, otherwise create a new LightBulb service
-    this.service = this.accessory.getService(this.platform.Service.Lightbulb) || this.accessory.addService(this.platform.Service.Lightbulb);
+    const existingLightbulbService = this.accessory.getService(this.platform.Service.Lightbulb);
+    const serviceName = this.platform.formatHomeKitName(deviceData.displayName);
+    this.service = existingLightbulbService || this.accessory.addService(this.platform.Service.Lightbulb, serviceName);
 
     // set the service name for display as the default name in the Home app
-    this.service.setCharacteristic(
-      this.platform.Characteristic.Name,
-      this.platform.formatHomeKitName(deviceData.displayName),
-    );
+    if (!existingLightbulbService) {
+      this.service.setCharacteristic(this.platform.Characteristic.Name, serviceName);
+    }
     this.States.On = deviceData.state === 'on';
-    this.States.Brightness = deviceData.brightness || 100;
+    this.States.Brightness = deviceData.brightness ?? 100;
     this.service.updateCharacteristic(this.platform.Characteristic.On, this.States.On);
 
     // register handlers for the On/Off Characteristic
@@ -84,26 +82,14 @@ export class LightingAccessory {
 
     this.accessory.on(PlatformAccessoryEvent.IDENTIFY, this.identify.bind(this));
 
-    // Get a control token from the AiSEG2 controller
-    this.updateControlToken().catch(error => {
-      this.platform.log.error(`Failed to update control token for '${accessory.context.device.displayName}': ${this.formatError(error)}`);
-    });
-
-    // Refresh the control token every 15 seconds
-    setInterval(() => {
-      this.updateControlToken().catch(error => {
-        this.platform.log.error(`Failed to update control token for '${accessory.context.device.displayName}': ${this.formatError(error)}`);
-      });
-    }, 15000);
-
     // Update lighting accessory characteristics values asynchronously
-    setInterval(() => {
+    this.platform.registerInterval(() => {
       this.updateLightingState().catch(error => {
         this.platform.log.error(
           `Failed to update lighting state for '${accessory.context.device.displayName}': ${this.formatError(error)}`,
         );
       });
-    }, 5000);
+    }, 30000);
   }
 
   // Fetch the current state of an AiSEG2 lighting device
@@ -120,7 +106,7 @@ export class LightingAccessory {
     this.States.UpdatingState = true;
     const deviceData = this.accessory.context.device;
     try {
-      const status = await this.platform.client.getLightingStatus(deviceData, force);
+      const status = await this.platform.client.getLightingStatus(deviceData, force, force ? 'action' : 'normal');
       this.updateHomeKitState(deviceData, status);
     } finally {
       this.States.UpdatingState = false;
@@ -131,7 +117,7 @@ export class LightingAccessory {
   async updateControlToken(): Promise<void> {
     this.platform.log.debug('Fetching control token from AiSEG2');
     this.States.Token = await this.platform.client.getControlToken();
-    this.platform.log.debug(`Retrieved control token '${this.States.Token}'`);
+    this.platform.log.debug('Retrieved control token from AiSEG2');
   }
 
   // Poll for the execution status of an async AiSEG2 change request
@@ -191,7 +177,6 @@ export class LightingAccessory {
     const deviceData = this.accessory.context.device;
 
     this.platform.log.debug(`Requested state for ${deviceData.displayName} is ${this.States.On ? 'ON' : 'OFF'}`);
-    this.service.updateCharacteristic(this.platform.Characteristic.On, this.States.On);
 
     return this.States.On;
   }
@@ -201,7 +186,7 @@ export class LightingAccessory {
     const deviceData = this.accessory.context.device;
     if (deviceData.dimmable === false) {
       this.platform.log.warn(`${deviceData.displayName} brightness request rejected: device does not support brightness control`);
-      throw new Error(`${deviceData.displayName} does not support brightness control`);
+      throw this.platform.invalidValueError();
     }
 
     if (Number(value) <= 0) {
@@ -355,7 +340,7 @@ export class LightingAccessory {
     }
 
     if (result !== true) {
-      throw new Error(`${this.accessory.context.device.displayName} update submission failed: ${JSON.stringify(response)}`);
+      throw new Error(`${this.accessory.context.device.displayName} update submission failed: ${this.platform.safeJson(response)}`);
     }
 
     await this.confirmLightingState(actionId, expected, action);
@@ -401,9 +386,7 @@ export class LightingAccessory {
   }
 
   private async ensureControlToken(): Promise<void> {
-    if (!this.States.Token) {
-      await this.updateControlToken();
-    }
+    await this.updateControlToken();
   }
 
   private async waitForAcceptedChange(response: LightingChangeResponse): Promise<boolean> {
@@ -452,7 +435,7 @@ export class LightingAccessory {
           return;
         }
 
-        const status = await this.platform.client.getLightingStatus(deviceData, true);
+        const status = await this.platform.client.getLightingStatus(deviceData, true, 'action');
         if (actionId !== this.lightingActionSequence || this.actionQueue.hasQueued) {
           return;
         }
@@ -565,7 +548,7 @@ export class LightingAccessory {
   private normalizeBrightness(value: CharacteristicValue): number {
     const brightness = Number(value);
     if (!Number.isFinite(brightness)) {
-      throw new Error(`Invalid brightness value '${value}'`);
+      throw this.platform.invalidValueError();
     }
 
     const steppedBrightness = Math.round(brightness / 20) * 20;

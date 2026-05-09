@@ -26,14 +26,14 @@ export class DoorLockAccessory {
   ) {
     this.device = accessory.context.device as DoorLockDevice;
 
-    this.accessory.getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Panasonic')
-      .setCharacteristic(this.platform.Characteristic.Model, 'AiSEG2 Door Lock')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.device.uuidSeed);
+    this.platform.configureAccessoryInformation(this.accessory, 'AiSEG2 Door Lock', this.device.uuidSeed);
 
-    this.service = this.accessory.getService(this.platform.Service.LockMechanism) ||
-      this.accessory.addService(this.platform.Service.LockMechanism);
-    this.service.setCharacteristic(this.platform.Characteristic.Name, this.platform.formatHomeKitName(this.device.displayName));
+    const existingService = this.accessory.getService(this.platform.Service.LockMechanism);
+    const serviceName = this.platform.formatHomeKitName(this.device.displayName);
+    this.service = existingService || this.accessory.addService(this.platform.Service.LockMechanism, serviceName);
+    if (!existingService) {
+      this.service.setCharacteristic(this.platform.Characteristic.Name, serviceName);
+    }
 
     this.service.getCharacteristic(this.platform.Characteristic.LockCurrentState)
       .onGet(() => this.state.currentState);
@@ -47,7 +47,7 @@ export class DoorLockAccessory {
       secured: this.device.lockVal === 'lock_val' ? true : this.device.lockVal === 'lock_val open' ? false : undefined,
     });
 
-    setInterval(() => {
+    this.platform.registerInterval(() => {
       this.updateStatus().catch(error => {
         this.platform.log.error(`Failed to update door lock '${this.device.displayName}': ${this.formatError(error)}`);
       });
@@ -81,7 +81,7 @@ export class DoorLockAccessory {
       return;
     }
 
-    const status = await this.platform.client.getDoorLockStatus(this.device, true);
+    const status = await this.platform.client.getDoorLockStatus(this.device, true, 'action');
     this.platform.log.info(
       `${this.device.displayName} lock request: target=${this.formatSecured(desiredSecured)}, ` +
       `current=${this.formatSecured(status.secured)}, command=${status.statecmd || '-'}`,
@@ -130,7 +130,7 @@ export class DoorLockAccessory {
       this.pendingTargetSecured = undefined;
       await this.updateStatus(true);
       this.runQueuedTargetState();
-      throw error;
+      throw this.platform.homeKitError(error);
     }
   }
 
@@ -187,7 +187,7 @@ export class DoorLockAccessory {
   private async pollForDesiredState(desiredSecured: boolean): Promise<void> {
     for (let count = 0; count < 30; count++) {
       await this.delay(1000);
-      const status = await this.platform.client.getDoorLockStatus(this.device, true);
+      const status = await this.platform.client.getDoorLockStatus(this.device, true, 'action');
       this.applyCurrentState(status);
 
       if (status.secured === desiredSecured) {
@@ -202,7 +202,7 @@ export class DoorLockAccessory {
 
   private assertAcceptedResponse(response: OperationResponse): void {
     if (response.result !== undefined && String(response.result) !== CheckResult.OK) {
-      throw new Error(`${this.device.displayName} update submission failed: ${JSON.stringify(response)}`);
+      throw new Error(`${this.device.displayName} update submission failed: ${this.platform.safeJson(response)}`);
     }
   }
 

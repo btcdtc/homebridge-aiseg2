@@ -96,19 +96,19 @@ export class AirConditionerAccessory {
     this.state.maxTemperature = this.device.maxTemperature ?? this.capabilities.maxTemperature ?? this.state.maxTemperature;
     this.state.targetHumidifierDehumidifierState = this.defaultHumidifierTargetState();
 
-    this.accessory.getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Panasonic')
-      .setCharacteristic(this.platform.Characteristic.Model, 'AiSEG2 Air Conditioner')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.device.uuidSeed);
+    this.platform.configureAccessoryInformation(this.accessory, 'AiSEG2 Air Conditioner', this.device.uuidSeed);
 
     const legacyThermostat = this.accessory.getService(this.platform.Service.Thermostat);
     if (legacyThermostat) {
       this.accessory.removeService(legacyThermostat);
     }
 
-    this.service = this.accessory.getService(this.platform.Service.HeaterCooler) ||
-      this.accessory.addService(this.platform.Service.HeaterCooler);
-    this.service.setCharacteristic(this.platform.Characteristic.Name, this.platform.formatHomeKitName(this.device.displayName));
+    const existingService = this.accessory.getService(this.platform.Service.HeaterCooler);
+    const serviceName = this.platform.formatHomeKitName(this.device.displayName);
+    this.service = existingService || this.accessory.addService(this.platform.Service.HeaterCooler, serviceName);
+    if (!existingService) {
+      this.service.setCharacteristic(this.platform.Characteristic.Name, serviceName);
+    }
     this.configureHeaterCoolerService();
     this.fanService = this.configureFanService();
     this.humidifierService = this.configureHumidifierService();
@@ -131,7 +131,7 @@ export class AirConditionerAccessory {
       this.platform.log.error(`Failed to update air conditioner '${this.device.displayName}': ${this.formatError(error)}`);
     });
 
-    setInterval(() => {
+    this.platform.registerInterval(() => {
       this.updateStatus().catch(error => {
         this.platform.log.error(`Failed to update air conditioner '${this.device.displayName}': ${this.formatError(error)}`);
       });
@@ -139,7 +139,7 @@ export class AirConditionerAccessory {
   }
 
   async updateStatus(force = false): Promise<void> {
-    const status = await this.platform.client.getAirConditionerStatus(this.device, force);
+    const status = await this.platform.client.getAirConditionerStatus(this.device, force, force ? 'action' : 'normal');
     this.applyStatus(status);
   }
 
@@ -297,7 +297,7 @@ export class AirConditionerAccessory {
       this.platform.log.error(`${this.device.displayName} ${this.actionLabel(action)} request failed: ${this.formatError(error)}`);
       await this.updateStatus(true);
       this.runQueuedAction();
-      throw error;
+      throw this.platform.homeKitError(error);
     }
   }
 
@@ -524,7 +524,9 @@ export class AirConditionerAccessory {
 
     const name = this.platform.formatHomeKitName(`${this.device.displayName} 送風`);
     const service = existingService || this.accessory.addService(this.platform.Service.Fanv2, name, 'fan-mode');
-    service.setCharacteristic(this.platform.Characteristic.Name, name);
+    if (!existingService) {
+      service.setCharacteristic(this.platform.Characteristic.Name, name);
+    }
     service.getCharacteristic(this.platform.Characteristic.Active)
       .onSet(this.setFanActive.bind(this))
       .onGet(() => this.state.fanActive);
@@ -557,7 +559,9 @@ export class AirConditionerAccessory {
 
     const name = this.platform.formatHomeKitName(`${this.device.displayName} 加湿 除湿`);
     const service = existingService || this.accessory.addService(this.platform.Service.HumidifierDehumidifier, name, 'humidity-mode');
-    service.setCharacteristic(this.platform.Characteristic.Name, name);
+    if (!existingService) {
+      service.setCharacteristic(this.platform.Characteristic.Name, name);
+    }
     service.getCharacteristic(this.platform.Characteristic.Active)
       .onSet(this.setHumidifierDehumidifierActive.bind(this))
       .onGet(() => this.state.humidifierActive);
@@ -588,7 +592,9 @@ export class AirConditionerAccessory {
 
       const name = this.platform.formatHomeKitName(`${this.device.displayName} ${this.formatMode(mode)}`);
       const service = existingService || this.accessory.addService(this.platform.Service.Switch, name, subtype);
-      service.setCharacteristic(this.platform.Characteristic.Name, name);
+      if (!existingService) {
+        service.setCharacteristic(this.platform.Characteristic.Name, name);
+      }
       service.getCharacteristic(this.platform.Characteristic.On)
         .onSet(this.setModeSwitch.bind(this, mode))
         .onGet(() => this.state.mode === mode);
@@ -620,9 +626,12 @@ export class AirConditionerAccessory {
   private ensureIndoorHumidityService(): Service {
     if (!this.indoorHumidityService) {
       const name = this.platform.formatHomeKitName(`${this.device.displayName} 室内湿度`);
-      this.indoorHumidityService = this.accessory.getServiceById(this.platform.Service.HumiditySensor, 'indoor-humidity') ||
+      const existingService = this.accessory.getServiceById(this.platform.Service.HumiditySensor, 'indoor-humidity');
+      this.indoorHumidityService = existingService ||
         this.accessory.addService(this.platform.Service.HumiditySensor, name, 'indoor-humidity');
-      this.indoorHumidityService.setCharacteristic(this.platform.Characteristic.Name, name);
+      if (!existingService) {
+        this.indoorHumidityService.setCharacteristic(this.platform.Characteristic.Name, name);
+      }
     }
 
     return this.indoorHumidityService;
@@ -631,9 +640,12 @@ export class AirConditionerAccessory {
   private ensureOutdoorTemperatureService(): Service {
     if (!this.outdoorTemperatureService) {
       const name = this.platform.formatHomeKitName(`${this.device.displayName} 室外温度`);
-      this.outdoorTemperatureService = this.accessory.getServiceById(this.platform.Service.TemperatureSensor, 'outdoor-temperature') ||
+      const existingService = this.accessory.getServiceById(this.platform.Service.TemperatureSensor, 'outdoor-temperature');
+      this.outdoorTemperatureService = existingService ||
         this.accessory.addService(this.platform.Service.TemperatureSensor, name, 'outdoor-temperature');
-      this.outdoorTemperatureService.setCharacteristic(this.platform.Characteristic.Name, name);
+      if (!existingService) {
+        this.outdoorTemperatureService.setCharacteristic(this.platform.Characteristic.Name, name);
+      }
     }
 
     return this.outdoorTemperatureService;
@@ -698,7 +710,7 @@ export class AirConditionerAccessory {
         return;
       }
 
-      const status = await this.platform.client.getAirConditionerStatus(this.device, true);
+      const status = await this.platform.client.getAirConditionerStatus(this.device, true, 'action');
       if (actionId !== this.actionSequence || this.queuedAction) {
         return;
       }
@@ -989,7 +1001,7 @@ export class AirConditionerAccessory {
 
   private fanModeFromRotationSpeed(speed: number): string {
     if (!Number.isFinite(speed)) {
-      throw new Error(`Invalid air conditioner fan speed '${speed}'`);
+      throw this.platform.invalidValueError();
     }
 
     if (speed <= 0 && this.supportedFanModes().some(option => option.value === AirConditionerFanMode.Auto)) {
@@ -1018,7 +1030,7 @@ export class AirConditionerAccessory {
   private normalizeTemperature(value: CharacteristicValue): number {
     const temperature = Math.round(Number(value));
     if (!Number.isFinite(temperature)) {
-      throw new Error(`Invalid target temperature '${value}'`);
+      throw this.platform.invalidValueError();
     }
 
     return Math.max(this.state.minTemperature, Math.min(this.state.maxTemperature, temperature));

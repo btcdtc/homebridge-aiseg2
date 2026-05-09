@@ -20,24 +20,23 @@ export class AirEnvironmentSensorAccessory {
   ) {
     this.device = accessory.context.device as AirEnvironmentSensorDevice;
 
-    this.accessory.getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Panasonic')
-      .setCharacteristic(this.platform.Characteristic.Model, 'AiSEG2 Air Environment Sensor')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.device.uuidSeed);
+    this.platform.configureAccessoryInformation(this.accessory, 'AiSEG2 Air Environment Sensor', this.device.uuidSeed);
 
-    this.temperatureService = this.accessory.getService(this.platform.Service.TemperatureSensor) ||
-      this.accessory.addService(this.platform.Service.TemperatureSensor);
-    this.temperatureService.setCharacteristic(
-      this.platform.Characteristic.Name,
-      this.platform.formatHomeKitName(`${this.device.displayName} 温度`),
-    );
+    const temperatureServiceName = this.platform.formatHomeKitName(`${this.device.displayName} 温度`);
+    const existingTemperatureService = this.accessory.getService(this.platform.Service.TemperatureSensor);
+    this.temperatureService = existingTemperatureService ||
+      this.accessory.addService(this.platform.Service.TemperatureSensor, temperatureServiceName);
+    if (!existingTemperatureService) {
+      this.temperatureService.setCharacteristic(this.platform.Characteristic.Name, temperatureServiceName);
+    }
 
-    this.humidityService = this.accessory.getService(this.platform.Service.HumiditySensor) ||
-      this.accessory.addService(this.platform.Service.HumiditySensor);
-    this.humidityService.setCharacteristic(
-      this.platform.Characteristic.Name,
-      this.platform.formatHomeKitName(`${this.device.displayName} 湿度`),
-    );
+    const humidityServiceName = this.platform.formatHomeKitName(`${this.device.displayName} 湿度`);
+    const existingHumidityService = this.accessory.getService(this.platform.Service.HumiditySensor);
+    this.humidityService = existingHumidityService ||
+      this.accessory.addService(this.platform.Service.HumiditySensor, humidityServiceName);
+    if (!existingHumidityService) {
+      this.humidityService.setCharacteristic(this.platform.Characteristic.Name, humidityServiceName);
+    }
     this.platform.configureGroupedService(
       this.temperatureService,
       [this.humidityService],
@@ -50,7 +49,7 @@ export class AirEnvironmentSensorAccessory {
       this.platform.log.error(`Failed to update air environment sensor '${this.device.displayName}': ${this.formatError(error)}`);
     });
 
-    setInterval(() => {
+    this.platform.registerInterval(() => {
       this.updateStatus().catch(error => {
         this.platform.log.error(`Failed to update air environment sensor '${this.device.displayName}': ${this.formatError(error)}`);
       });

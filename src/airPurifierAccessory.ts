@@ -54,14 +54,14 @@ export class AirPurifierAccessory {
   ) {
     this.device = accessory.context.device as AirPurifierDevice;
 
-    this.accessory.getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Panasonic')
-      .setCharacteristic(this.platform.Characteristic.Model, 'AiSEG2 Air Purifier')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.device.uuidSeed);
+    this.platform.configureAccessoryInformation(this.accessory, 'AiSEG2 Air Purifier', this.device.uuidSeed);
 
-    this.service = this.accessory.getService(this.platform.Service.AirPurifier) ||
-      this.accessory.addService(this.platform.Service.AirPurifier);
-    this.service.setCharacteristic(this.platform.Characteristic.Name, this.platform.formatHomeKitName(this.device.displayName));
+    const existingService = this.accessory.getService(this.platform.Service.AirPurifier);
+    const serviceName = this.platform.formatHomeKitName(this.device.displayName);
+    this.service = existingService || this.accessory.addService(this.platform.Service.AirPurifier, serviceName);
+    if (!existingService) {
+      this.service.setCharacteristic(this.platform.Characteristic.Name, serviceName);
+    }
 
     this.service.getCharacteristic(this.platform.Characteristic.Active)
       .onSet(this.setActive.bind(this))
@@ -96,7 +96,7 @@ export class AirPurifierAccessory {
       this.platform.log.error(`Failed to update air purifier '${this.device.displayName}': ${this.formatError(error)}`);
     });
 
-    setInterval(() => {
+    this.platform.registerInterval(() => {
       this.updateStatus().catch(error => {
         this.platform.log.error(`Failed to update air purifier '${this.device.displayName}': ${this.formatError(error)}`);
       });
@@ -104,7 +104,7 @@ export class AirPurifierAccessory {
   }
 
   async updateStatus(force = false): Promise<void> {
-    const status = await this.platform.client.getAirPurifierStatus(this.device, force);
+    const status = await this.platform.client.getAirPurifierStatus(this.device, force, force ? 'action' : 'normal');
     this.applyStatus(status);
   }
 
@@ -123,7 +123,7 @@ export class AirPurifierAccessory {
   async setRotationSpeed(value: CharacteristicValue): Promise<void> {
     const speed = Number(value);
     if (!Number.isFinite(speed)) {
-      throw new Error(`Invalid air purifier speed '${value}'`);
+      throw this.platform.invalidValueError();
     }
 
     await this.setMode(this.modeFromRotationSpeed(speed));
@@ -192,7 +192,7 @@ export class AirPurifierAccessory {
       this.platform.log.error(`${this.device.displayName} mode request failed: ${this.formatError(error)}`);
       await this.updateStatus(true);
       this.runQueuedMode();
-      throw error;
+      throw this.platform.homeKitError(error);
     }
   }
 
@@ -340,19 +340,25 @@ export class AirPurifierAccessory {
   }
 
   private getAirQualityService(subtype: string, name: string): Service {
-    const service = this.accessory.getServiceById(this.platform.Service.AirQualitySensor, subtype) ||
-      this.accessory.addService(this.platform.Service.AirQualitySensor, this.platform.formatHomeKitName(name), subtype);
-    service.setCharacteristic(this.platform.Characteristic.Name, this.platform.formatHomeKitName(name));
+    const serviceName = this.platform.formatHomeKitName(name);
+    const existingService = this.accessory.getServiceById(this.platform.Service.AirQualitySensor, subtype);
+    const service = existingService ||
+      this.accessory.addService(this.platform.Service.AirQualitySensor, serviceName, subtype);
+    if (!existingService) {
+      service.setCharacteristic(this.platform.Characteristic.Name, serviceName);
+    }
 
     return service;
   }
 
   private getModeSwitchService(subtype: string, name: string, mode: AirPurifierMode): Service {
     const formattedName = this.platform.formatHomeKitName(name);
-    const service = this.accessory.getServiceById(this.platform.Service.Switch, subtype) ||
-      this.accessory.addService(this.platform.Service.Switch, formattedName, subtype);
-    service.displayName = formattedName;
-    service.setCharacteristic(this.platform.Characteristic.Name, formattedName);
+    const existingService = this.accessory.getServiceById(this.platform.Service.Switch, subtype);
+    const service = existingService || this.accessory.addService(this.platform.Service.Switch, formattedName, subtype);
+    if (!existingService) {
+      service.displayName = formattedName;
+      service.setCharacteristic(this.platform.Characteristic.Name, formattedName);
+    }
     service.getCharacteristic(this.platform.Characteristic.On)
       .onSet(this.setModeSwitch.bind(this, mode))
       .onGet(() => this.state.mode === mode);
@@ -417,7 +423,7 @@ export class AirPurifierAccessory {
 
   private async waitForAcceptedChange(response: OperationResponse, token: string): Promise<void> {
     if (response.result !== undefined && String(response.result) !== CheckResult.OK) {
-      throw new Error(`${this.device.displayName} update submission failed: ${JSON.stringify(response)}`);
+      throw new Error(`${this.device.displayName} update submission failed: ${this.platform.safeJson(response)}`);
     }
 
     const acceptId = Number(response.acceptId);
@@ -454,7 +460,7 @@ export class AirPurifierAccessory {
         return;
       }
 
-      const status = await this.platform.client.getAirPurifierStatus(this.device, true);
+      const status = await this.platform.client.getAirPurifierStatus(this.device, true, 'action');
       if (actionId !== this.modeActionSequence || this.queuedMode !== undefined) {
         return;
       }

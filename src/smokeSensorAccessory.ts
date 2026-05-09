@@ -14,21 +14,21 @@ export class SmokeSensorAccessory {
   ) {
     this.device = accessory.context.device as SmokeSensorDevice;
 
-    this.accessory.getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Panasonic')
-      .setCharacteristic(this.platform.Characteristic.Model, 'AiSEG2 Smoke Sensor')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.device.uuidSeed);
+    this.platform.configureAccessoryInformation(this.accessory, 'AiSEG2 Smoke Sensor', this.device.uuidSeed);
 
-    this.service = this.accessory.getService(this.platform.Service.SmokeSensor) ||
-      this.accessory.addService(this.platform.Service.SmokeSensor);
-    this.service.setCharacteristic(this.platform.Characteristic.Name, this.platform.formatHomeKitName(this.device.displayName));
+    const existingService = this.accessory.getService(this.platform.Service.SmokeSensor);
+    const serviceName = this.platform.formatHomeKitName(this.device.displayName);
+    this.service = existingService || this.accessory.addService(this.platform.Service.SmokeSensor, serviceName);
+    if (!existingService) {
+      this.service.setCharacteristic(this.platform.Characteristic.Name, serviceName);
+    }
 
     this.applyState(
       Boolean(this.device.color) || Boolean(this.device.time && this.device.time !== '-'),
       this.device.battVisible !== undefined && this.device.battVisible !== 'hidden',
     );
 
-    setInterval(() => {
+    this.platform.registerInterval(() => {
       this.updateSmokeState().catch(error => {
         this.platform.log.error(`Failed to update smoke sensor '${this.device.displayName}': ${this.formatError(error)}`);
       });
