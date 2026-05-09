@@ -16,12 +16,7 @@ enum AirPurifierMode {
   Eco = '0x47',
 }
 
-const AUTO_MODE_SWITCHES = [
-  {
-    subtype: 'auto',
-    name: 'おまかせ',
-    mode: AirPurifierMode.Auto,
-  },
+const EXTRA_MODE_SWITCHES = [
   {
     subtype: 'airy',
     name: 'エアミー',
@@ -88,7 +83,8 @@ export class AirPurifierAccessory {
     this.smellService = this.getAirQualityService('smell', `${this.device.displayName} ニオイ`);
     this.pm25Service = this.getAirQualityService('pm25', `${this.device.displayName} PM2.5`);
     this.dustService = this.getAirQualityService('dust', `${this.device.displayName} ハウスダスト`);
-    for (const modeSwitch of AUTO_MODE_SWITCHES) {
+    this.removeLegacyAutoModeSwitch();
+    for (const modeSwitch of EXTRA_MODE_SWITCHES) {
       this.modeSwitchServices.set(
         modeSwitch.mode,
         this.getModeSwitchService(modeSwitch.subtype, `${this.device.displayName} ${modeSwitch.name}`, modeSwitch.mode),
@@ -354,6 +350,13 @@ export class AirPurifierAccessory {
       .onGet(() => this.state.mode === mode);
 
     return service;
+  }
+
+  private removeLegacyAutoModeSwitch(): void {
+    const legacyService = this.accessory.getServiceById(this.platform.Service.Switch, 'auto');
+    if (legacyService) {
+      this.accessory.removeService(legacyService);
+    }
   }
 
   private updateModeSwitches(): void {
