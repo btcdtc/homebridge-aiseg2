@@ -110,12 +110,12 @@ export class AirPurifierAccessory {
 
   async setActive(value: CharacteristicValue): Promise<void> {
     const active = Number(value) === this.platform.Characteristic.Active.ACTIVE;
-    await this.setMode(active ? AirPurifierMode.Auto : AirPurifierMode.Stop);
+    await this.setMode(active ? this.defaultAutomaticMode() : AirPurifierMode.Stop);
   }
 
   async setTargetState(value: CharacteristicValue): Promise<void> {
     const mode = Number(value) === this.platform.Characteristic.TargetAirPurifierState.AUTO
-      ? AirPurifierMode.Auto
+      ? this.defaultAutomaticMode()
       : AirPurifierMode.Medium;
     await this.setMode(mode);
   }
@@ -321,6 +321,14 @@ export class AirPurifierAccessory {
 
   private isAutomaticMode(mode: string): boolean {
     return mode === AirPurifierMode.Auto || mode === AirPurifierMode.Airy || mode === AirPurifierMode.Eco;
+  }
+
+  private defaultAutomaticMode(): AirPurifierMode {
+    if (this.state.mode === AirPurifierMode.Airy || this.state.mode === AirPurifierMode.Eco) {
+      return this.state.mode;
+    }
+
+    return AirPurifierMode.Airy;
   }
 
   private modeFromStatus(mode: string): AirPurifierMode {

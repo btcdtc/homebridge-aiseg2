@@ -53,6 +53,9 @@ link odor, PM2.5, house dust, and AirMe/Eco mode switches to the purifier servic
 temperature, fan, humidity, and extra mode services to the heater cooler service. Air environment sensors link humidity to the
 paired temperature service.
 
+For air purifiers with AirMe/Eco automatic modes, HomeKit's generic Auto target maps to AirMe by default. Eco remains available as
+a separate mode switch.
+
 Set `exposeContactSensorLockState` to `true` to add a read-only Contact Sensor service to window lock sensors that report
 `lockVal`. Locked is reported as contact detected, and unlocked is reported as contact not detected.
 
