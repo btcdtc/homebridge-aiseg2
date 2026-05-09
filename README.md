@@ -21,11 +21,8 @@ This plugin supports the following AiSEG2 devices:
 * AiSEG2 open/close and window lock sensors as HomeKit Contact Sensor accessories, optionally with read-only lock-state Contact Sensor services
 * AiSEG2 fire alarm registrations as HomeKit Smoke Sensor accessories
 
-All development and testing has been performed using an MKN704 controller. It is likely that the code will also work with the MKN705 and KMN713 controllers.
-
-## No Support
-
-This is a personal, vibe-coded Homebridge plugin. No support is provided. If you run into issues, fork it, debug it, and vibe code the fix yourself.
+Development and testing has been performed using an MKN704 controller. The MKN705 and KMN713 controllers may also work if their web
+interfaces expose the same AiSEG2 endpoints.
 
 ## Configuration
 

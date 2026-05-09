@@ -1,13 +1,12 @@
 {
   "displayName": "Homebridge AiSEG2",
   "name": "homebridge-aiseg2",
-  "version": "0.9.14",
+  "version": "0.9.15",
   "description": "Panasonic AiSEG2 plugin for Homebridge.",
-  "author": "btcdtc",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git://github.com/btcdtc/homebridge-aiseg2.git"
+    "url": "https://github.com/btcdtc/homebridge-aiseg2.git"
   },
   "bugs": {
     "url": "https://github.com/btcdtc/homebridge-aiseg2/issues"
