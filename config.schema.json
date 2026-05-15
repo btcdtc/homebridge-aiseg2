@@ -126,20 +126,14 @@
         }
       },
       "energy": {
-        "title": "Energy status",
+        "title": "Energy status sensors",
         "type": "object",
         "properties": {
           "enabled": {
-            "title": "Enable energy status",
+            "title": "Show energy status sensors in Apple Home",
             "type": "boolean",
             "default": false,
-            "description": "Reads ECHONET Lite solar and storage battery data. Apple Home receives derived status sensors, not raw W/kWh values."
-          },
-          "exposeStatusSensors": {
-            "title": "Expose Apple Home status sensors",
-            "type": "boolean",
-            "default": true,
-            "description": "Adds contact-sensor style status services for Solar Surplus, Battery Ready, Battery Discharging, and EcoCute Good Time."
+            "description": "Adds contact-sensor style services for Solar Surplus, Battery Ready, Battery Discharging, and EcoCute Good Time. Raw W/kWh values are logged only."
           },
           "solarSurplusWatts": {
             "title": "Solar surplus threshold watts",

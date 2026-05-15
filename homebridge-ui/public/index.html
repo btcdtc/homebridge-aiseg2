@@ -47,6 +47,10 @@
     grid-template-columns: 1fr auto;
   }
 
+  .aiseg2-wide {
+    grid-column: 1 / -1;
+  }
+
   .aiseg2-muted {
     color: var(--bs-secondary-color, #6c757d);
     font-size: 0.875rem;
@@ -161,19 +165,18 @@
 
   <section class="aiseg2-section">
     <div class="aiseg2-heading">
-      <h2>Energy status</h2>
+      <h2>Energy status sensors</h2>
     </div>
     <div class="aiseg2-grid">
+      <div class="aiseg2-muted aiseg2-wide">
+        Shows derived Apple Home contact sensors from ECHONET solar and storage battery data. Raw W/kWh values are logged only.
+      </div>
       <div class="form-check align-self-end mb-2">
         <input class="form-check-input" id="energy-enabled" type="checkbox">
-        <label class="form-check-label" for="energy-enabled">Enable energy status</label>
-      </div>
-      <div class="form-check align-self-end mb-2">
-        <input class="form-check-input" id="exposeStatusSensors" type="checkbox">
-        <label class="form-check-label" for="exposeStatusSensors">Expose Apple Home status sensors</label>
+        <label class="form-check-label" for="energy-enabled">Show in Apple Home</label>
       </div>
       <div>
-        <label class="form-label" for="solarSurplusWatts">Solar surplus watts</label>
+        <label class="form-label" for="solarSurplusWatts">Solar surplus threshold watts</label>
         <input class="form-control" id="solarSurplusWatts" type="number" inputmode="numeric" min="0" max="100000" step="100">
       </div>
       <div>
@@ -257,6 +260,7 @@
       </div>
       <div class="align-self-end">
         <button class="btn btn-outline-secondary w-100" id="useBrowserLocation" type="button">Use browser location</button>
+        <div class="form-text">Requires HTTPS or localhost. Otherwise enter coordinates manually.</div>
       </div>
       <div>
         <label class="form-label" for="forecastHours">Forecast hours</label>
@@ -372,7 +376,6 @@
     },
     energy: {
       enabled: false,
-      exposeStatusSensors: true,
       solarSurplusWatts: 2500,
       batteryReadyPercent: 80,
       batteryDischargeThresholdWatts: 100,
@@ -430,7 +433,6 @@
     { id: 'preferEcocutes', path: 'echonet.preferEcocutes', type: 'boolean' },
     { id: 'fallbackToAiseg', path: 'echonet.fallbackToAiseg', type: 'boolean' },
     { id: 'energy-enabled', path: 'energy.enabled', type: 'boolean' },
-    { id: 'exposeStatusSensors', path: 'energy.exposeStatusSensors', type: 'boolean' },
     { id: 'solarSurplusWatts', path: 'energy.solarSurplusWatts', type: 'integer', fallback: 2500, min: 0, max: 100000 },
     { id: 'batteryReadyPercent', path: 'energy.batteryReadyPercent', type: 'integer', fallback: 80, min: 0, max: 100 },
     {
@@ -586,6 +588,7 @@
     for (const field of CONFIG_FIELDS) {
       setPath(nextConfig, field.path, readFieldFromElement(field));
     }
+    delete nextConfig.energy.exposeStatusSensors;
     delete nextConfig.ecocuteSolarAutomation.cooldownHours;
     config = nextConfig;
     return nextConfig;
@@ -770,6 +773,13 @@
       homebridge.toast.warning('This browser does not expose location permission.');
       return;
     }
+    if (!isSecureLocationContext()) {
+      homebridge.toast.warning(
+        'Browser location requires HTTPS or localhost. Enter latitude/longitude manually, or open Homebridge through HTTPS/localhost.',
+        'Weather location',
+      );
+      return;
+    }
 
     $('useBrowserLocation').disabled = true;
     navigator.geolocation.getCurrentPosition(
@@ -791,6 +801,11 @@
         timeout: 10000,
       },
     );
+  }
+
+  function isSecureLocationContext() {
+    const hostname = window.location.hostname;
+    return Boolean(window.isSecureContext) || ['localhost', '127.0.0.1', '::1'].includes(hostname);
   }
 
   function setStatus(message, isError) {

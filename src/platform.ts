@@ -265,7 +265,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   }
 
   async discoverEnergy(): Promise<void> {
-    if (!this.energyBoolean('enabled', false) || !this.energyBoolean('exposeStatusSensors', true)) {
+    if (!this.energyBoolean('enabled', false)) {
       return;
     }
 
