@@ -2,6 +2,7 @@
   "pluginAlias": "AiSEG2",
   "pluginType": "platform",
   "singular": true,
+  "customUi": true,
   "schema": {
     "type": "object",
     "properties": {
@@ -137,8 +138,6 @@
           "port": {
             "title": "Webhook port",
             "type": "integer",
-            "minimum": 1,
-            "maximum": 65535,
             "default": 18582
           },
           "bind": {

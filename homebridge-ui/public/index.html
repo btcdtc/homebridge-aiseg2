@@ -1,0 +1,574 @@
+<style>
+  .aiseg2-page {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .aiseg2-section {
+    border-top: 1px solid var(--bs-border-color, #dee2e6);
+    padding-top: 1rem;
+  }
+
+  .aiseg2-section:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .aiseg2-heading {
+    align-items: center;
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .aiseg2-heading h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .aiseg2-grid {
+    display: grid;
+    gap: 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+
+  .aiseg2-checks {
+    display: grid;
+    gap: 0.5rem 1rem;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+
+  .aiseg2-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: flex-end;
+  }
+
+  .aiseg2-url-row {
+    display: grid;
+    gap: 0.5rem;
+    grid-template-columns: 1fr auto;
+  }
+
+  .aiseg2-muted {
+    color: var(--bs-secondary-color, #6c757d);
+    font-size: 0.875rem;
+  }
+
+  @media (max-width: 575px) {
+    .aiseg2-url-row {
+      grid-template-columns: 1fr;
+    }
+
+    .aiseg2-actions {
+      justify-content: stretch;
+    }
+
+    .aiseg2-actions .btn {
+      flex: 1 1 auto;
+    }
+  }
+</style>
+
+<div class="aiseg2-page">
+  <section class="aiseg2-section">
+    <div class="aiseg2-heading">
+      <h2>Controller</h2>
+    </div>
+    <div class="aiseg2-grid">
+      <div>
+        <label class="form-label" for="name">Name</label>
+        <input class="form-control" id="name" type="text" autocomplete="off">
+      </div>
+      <div>
+        <label class="form-label" for="host">AiSEG2 host</label>
+        <input class="form-control" id="host" type="text" autocomplete="off" placeholder="192.168.20.216">
+        <div class="form-text">Leave empty only when auto discovery is enabled.</div>
+      </div>
+      <div>
+        <label class="form-label" for="password">Password</label>
+        <input class="form-control" id="password" type="password" autocomplete="current-password">
+      </div>
+      <div class="form-check align-self-end mb-2">
+        <input class="form-check-input" id="autodiscover" type="checkbox">
+        <label class="form-check-label" for="autodiscover">Auto discover controller</label>
+      </div>
+    </div>
+  </section>
+
+  <section class="aiseg2-section">
+    <div class="aiseg2-heading">
+      <h2>HomeKit grouping</h2>
+    </div>
+    <div class="aiseg2-checks">
+      <div class="form-check">
+        <input class="form-check-input" id="groupAirPurifierSensors" type="checkbox">
+        <label class="form-check-label" for="groupAirPurifierSensors">Group air purifier sensors</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" id="groupAirConditionerSensors" type="checkbox">
+        <label class="form-check-label" for="groupAirConditionerSensors">Group air conditioner sensors</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" id="groupAirEnvironmentSensors" type="checkbox">
+        <label class="form-check-label" for="groupAirEnvironmentSensors">Group temperature/humidity sensors</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" id="groupEcocuteServices" type="checkbox">
+        <label class="form-check-label" for="groupEcocuteServices">Group EcoCute services</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" id="exposeContactSensorLockState" type="checkbox">
+        <label class="form-check-label" for="exposeContactSensorLockState">Expose read-only window lock state</label>
+      </div>
+    </div>
+  </section>
+
+  <section class="aiseg2-section">
+    <div class="aiseg2-heading">
+      <h2>ECHONET Lite</h2>
+    </div>
+    <div class="aiseg2-grid">
+      <div class="form-check align-self-end mb-2">
+        <input class="form-check-input" id="echonet-enabled" type="checkbox">
+        <label class="form-check-label" for="echonet-enabled">Enable direct control</label>
+      </div>
+      <div>
+        <label class="form-label" for="echonet-subnets">Direct-control subnets</label>
+        <input class="form-control" id="echonet-subnets" type="text" placeholder="192.168.20.0/24">
+      </div>
+      <div class="form-check align-self-end mb-2">
+        <input class="form-check-input" id="echonetDiscovery" type="checkbox">
+        <label class="form-check-label" for="echonetDiscovery">Diagnostic discovery logging</label>
+      </div>
+      <div>
+        <label class="form-label" for="echonetSubnets">Diagnostic discovery subnets</label>
+        <input class="form-control" id="echonetSubnets" type="text" placeholder="192.168.20.0/24">
+      </div>
+    </div>
+    <div class="aiseg2-checks mt-3">
+      <div class="form-check">
+        <input class="form-check-input" id="preferShutters" type="checkbox">
+        <label class="form-check-label" for="preferShutters">Prefer shutters</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" id="preferDoorLocks" type="checkbox">
+        <label class="form-check-label" for="preferDoorLocks">Prefer door locks</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" id="preferAirPurifiers" type="checkbox">
+        <label class="form-check-label" for="preferAirPurifiers">Prefer air purifiers</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" id="preferEcocutes" type="checkbox">
+        <label class="form-check-label" for="preferEcocutes">Prefer EcoCute</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" id="fallbackToAiseg" type="checkbox">
+        <label class="form-check-label" for="fallbackToAiseg">Fallback to AiSEG2 when ECHONET fails</label>
+      </div>
+    </div>
+    <div class="mt-3">
+      <label class="form-label" for="doorLockHosts">Door lock host overrides</label>
+      <textarea class="form-control" id="doorLockHosts" rows="2" spellcheck="false" placeholder='{"玄関 電気錠":"192.168.20.137"}'></textarea>
+      <div class="form-text">Optional JSON map used only when multiple HF-JA door lock endpoints exist.</div>
+    </div>
+  </section>
+
+  <section class="aiseg2-section">
+    <div class="aiseg2-heading">
+      <h2>Webhook lock trigger</h2>
+      <button class="btn btn-outline-secondary btn-sm" id="refreshLocks" type="button">Refresh locks</button>
+    </div>
+    <div class="aiseg2-grid">
+      <div class="form-check align-self-end mb-2">
+        <input class="form-check-input" id="webhook-enabled" type="checkbox">
+        <label class="form-check-label" for="webhook-enabled">Enable webhook</label>
+      </div>
+      <div>
+        <label class="form-label" for="webhook-method">Method</label>
+        <select class="form-select" id="webhook-method">
+          <option value="post">POST only</option>
+          <option value="get">GET only</option>
+          <option value="any">GET or POST</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label" for="webhook-action">Lock action</label>
+        <select class="form-select" id="webhook-action">
+          <option value="unlock">Unlock only</option>
+          <option value="toggle">Toggle lock/unlock</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label" for="doorLockName">Door lock</label>
+        <select class="form-select" id="doorLockName">
+          <option value="">Auto (single door lock)</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label" for="webhook-port">Port</label>
+        <input class="form-control" id="webhook-port" type="number" inputmode="numeric" min="1" max="65535" step="1">
+      </div>
+      <div>
+        <label class="form-label" for="webhook-bind">Bind address</label>
+        <input class="form-control" id="webhook-bind" type="text" placeholder="0.0.0.0">
+      </div>
+      <div>
+        <label class="form-label" for="publicHost">Public host</label>
+        <input class="form-control" id="publicHost" type="text" placeholder="192.168.50.111">
+      </div>
+      <div>
+        <label class="form-label" for="cooldownSeconds">Cooldown seconds</label>
+        <input class="form-control" id="cooldownSeconds" type="number" inputmode="numeric" min="0" max="3600" step="1">
+      </div>
+    </div>
+    <div class="mt-3">
+      <label class="form-label" for="webhook-token">Token</label>
+      <div class="input-group">
+        <input class="form-control" id="webhook-token" type="text" autocomplete="off" spellcheck="false">
+        <button class="btn btn-outline-secondary" id="generateToken" type="button">Generate</button>
+      </div>
+    </div>
+    <div class="mt-3">
+      <label class="form-label" for="webhook-url">Full URL</label>
+      <div class="aiseg2-url-row">
+        <input class="form-control" id="webhook-url" type="text" readonly>
+        <button class="btn btn-outline-secondary" id="copyUrl" type="button">Copy</button>
+      </div>
+      <div class="form-text" id="webhookHelp"></div>
+    </div>
+  </section>
+
+  <section class="aiseg2-section">
+    <div class="aiseg2-actions">
+      <button class="btn btn-primary" id="saveConfig" type="button">Save</button>
+    </div>
+    <div class="aiseg2-muted mt-2" id="statusText"></div>
+  </section>
+</div>
+
+<script>
+(() => {
+  const DEFAULT_CONFIG = {
+    name: 'AiSEG2',
+    platform: 'AiSEG2',
+    autodiscover: false,
+    host: '',
+    password: '',
+    groupAirPurifierSensors: true,
+    groupAirConditionerSensors: true,
+    groupAirEnvironmentSensors: true,
+    groupEcocuteServices: true,
+    exposeContactSensorLockState: false,
+    echonetDiscovery: false,
+    echonetSubnets: '',
+    echonet: {
+      enabled: false,
+      subnets: '',
+      preferShutters: true,
+      preferDoorLocks: true,
+      preferAirPurifiers: true,
+      preferEcocutes: true,
+      fallbackToAiseg: false,
+      doorLockHosts: {},
+    },
+    webhook: {
+      enabled: false,
+      port: 18582,
+      bind: '0.0.0.0',
+      publicHost: '',
+      token: '',
+      method: 'post',
+      action: 'unlock',
+      doorLockName: '',
+      cooldownSeconds: 5,
+    },
+  };
+
+  let config = clone(DEFAULT_CONFIG);
+  let pluginConfig = [];
+  let updateTimer;
+  let localAddress = '';
+
+  const $ = id => document.getElementById(id);
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function mergeDefaults(base, value) {
+    const output = { ...base, ...(value || {}) };
+    output.echonet = { ...base.echonet, ...((value && value.echonet) || {}) };
+    output.webhook = { ...base.webhook, ...((value && value.webhook) || {}) };
+    return output;
+  }
+
+  function value(id) {
+    return $(id).value.trim();
+  }
+
+  function checked(id) {
+    return $(id).checked;
+  }
+
+  function setValue(id, nextValue) {
+    $(id).value = nextValue === undefined || nextValue === null ? '' : String(nextValue);
+  }
+
+  function setChecked(id, nextValue) {
+    $(id).checked = Boolean(nextValue);
+  }
+
+  function numberValue(id, fallback, min, max) {
+    const parsed = Number(value(id));
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+
+    return Math.max(min, Math.min(max, Math.trunc(parsed)));
+  }
+
+  function normalizeMethod(method) {
+    return ['post', 'get', 'any'].includes(method) ? method : 'post';
+  }
+
+  function normalizeAction(action) {
+    return action === 'toggle' ? 'toggle' : 'unlock';
+  }
+
+  function parseDoorLockHosts() {
+    const raw = value('doorLockHosts');
+    if (!raw) {
+      return {};
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function populateForm() {
+    setValue('name', config.name);
+    setValue('host', config.host);
+    setValue('password', config.password);
+    setChecked('autodiscover', config.autodiscover);
+    setChecked('groupAirPurifierSensors', config.groupAirPurifierSensors);
+    setChecked('groupAirConditionerSensors', config.groupAirConditionerSensors);
+    setChecked('groupAirEnvironmentSensors', config.groupAirEnvironmentSensors);
+    setChecked('groupEcocuteServices', config.groupEcocuteServices);
+    setChecked('exposeContactSensorLockState', config.exposeContactSensorLockState);
+    setChecked('echonetDiscovery', config.echonetDiscovery);
+    setValue('echonetSubnets', config.echonetSubnets);
+    setChecked('echonet-enabled', config.echonet.enabled);
+    setValue('echonet-subnets', config.echonet.subnets);
+    setChecked('preferShutters', config.echonet.preferShutters);
+    setChecked('preferDoorLocks', config.echonet.preferDoorLocks);
+    setChecked('preferAirPurifiers', config.echonet.preferAirPurifiers);
+    setChecked('preferEcocutes', config.echonet.preferEcocutes);
+    setChecked('fallbackToAiseg', config.echonet.fallbackToAiseg);
+    setValue('doorLockHosts', JSON.stringify(config.echonet.doorLockHosts || {}, null, 2));
+    setChecked('webhook-enabled', config.webhook.enabled);
+    setValue('webhook-method', normalizeMethod(config.webhook.method));
+    setValue('webhook-action', normalizeAction(config.webhook.action));
+    setValue('webhook-port', config.webhook.port);
+    setValue('webhook-bind', config.webhook.bind);
+    setValue('publicHost', config.webhook.publicHost);
+    setValue('cooldownSeconds', config.webhook.cooldownSeconds);
+    setValue('webhook-token', normalizeToken(config.webhook.token));
+    setValue('doorLockName', config.webhook.doorLockName);
+    updateWebhookUrl();
+  }
+
+  function gatherConfig() {
+    const nextConfig = mergeDefaults(DEFAULT_CONFIG, config);
+    nextConfig.name = value('name') || 'AiSEG2';
+    nextConfig.platform = 'AiSEG2';
+    nextConfig.autodiscover = checked('autodiscover');
+    nextConfig.host = value('host');
+    nextConfig.password = value('password');
+    nextConfig.groupAirPurifierSensors = checked('groupAirPurifierSensors');
+    nextConfig.groupAirConditionerSensors = checked('groupAirConditionerSensors');
+    nextConfig.groupAirEnvironmentSensors = checked('groupAirEnvironmentSensors');
+    nextConfig.groupEcocuteServices = checked('groupEcocuteServices');
+    nextConfig.exposeContactSensorLockState = checked('exposeContactSensorLockState');
+    nextConfig.echonetDiscovery = checked('echonetDiscovery');
+    nextConfig.echonetSubnets = value('echonetSubnets');
+    nextConfig.echonet.enabled = checked('echonet-enabled');
+    nextConfig.echonet.subnets = value('echonet-subnets');
+    nextConfig.echonet.preferShutters = checked('preferShutters');
+    nextConfig.echonet.preferDoorLocks = checked('preferDoorLocks');
+    nextConfig.echonet.preferAirPurifiers = checked('preferAirPurifiers');
+    nextConfig.echonet.preferEcocutes = checked('preferEcocutes');
+    nextConfig.echonet.fallbackToAiseg = checked('fallbackToAiseg');
+    nextConfig.echonet.doorLockHosts = parseDoorLockHosts();
+    nextConfig.webhook.enabled = checked('webhook-enabled');
+    nextConfig.webhook.method = normalizeMethod(value('webhook-method'));
+    nextConfig.webhook.action = normalizeAction(value('webhook-action'));
+    nextConfig.webhook.port = numberValue('webhook-port', 18582, 1, 65535);
+    nextConfig.webhook.bind = value('webhook-bind') || '0.0.0.0';
+    nextConfig.webhook.publicHost = value('publicHost');
+    nextConfig.webhook.token = normalizeToken(value('webhook-token'));
+    nextConfig.webhook.doorLockName = value('doorLockName');
+    nextConfig.webhook.cooldownSeconds = numberValue('cooldownSeconds', 5, 0, 3600);
+    config = nextConfig;
+    return nextConfig;
+  }
+
+  function scheduleConfigUpdate() {
+    updateWebhookUrl();
+    clearTimeout(updateTimer);
+    updateTimer = setTimeout(async () => {
+      try {
+        await homebridge.updatePluginConfig([gatherConfig()]);
+        setStatus('Unsaved changes');
+      } catch (error) {
+        setStatus(error.message || String(error), true);
+      }
+    }, 250);
+  }
+
+  function updateWebhookUrl() {
+    const host = value('publicHost') || window.location.hostname || localAddress || '127.0.0.1';
+    const port = numberValue('webhook-port', 18582, 1, 65535);
+    const token = normalizeToken(value('webhook-token'));
+    const method = normalizeMethod(value('webhook-method')).toUpperCase();
+    const url = token ? `http://${host}:${port}/api/webhook/${token}` : '';
+    setValue('webhook-url', url);
+    $('webhookHelp').textContent = token
+      ? `${method === 'ANY' ? 'GET or POST' : method} ${url}`
+      : 'Generate a token to produce the complete webhook URL.';
+  }
+
+  async function refreshDoorLocks() {
+    const current = gatherConfig();
+    $('refreshLocks').disabled = true;
+    try {
+      const result = await homebridge.request('/door-locks', { config: current });
+      const existing = value('doorLockName');
+      const select = $('doorLockName');
+      select.innerHTML = '<option value="">Auto (single door lock)</option>';
+      for (const lock of result.doorLocks || []) {
+        const option = document.createElement('option');
+        option.value = lock.name;
+        option.textContent = lock.name;
+        select.appendChild(option);
+      }
+      if (existing && ![...select.options].some(option => option.value === existing)) {
+        const option = document.createElement('option');
+        option.value = existing;
+        option.textContent = `${existing} (configured)`;
+        select.appendChild(option);
+      }
+      setValue('doorLockName', existing);
+      if (result.error) {
+        homebridge.toast.warning(result.error, 'Door lock discovery');
+      } else if (result.warning) {
+        homebridge.toast.info(result.warning, 'Door lock discovery');
+      }
+    } catch (error) {
+      homebridge.toast.error(error.message || String(error), 'Door lock discovery');
+    } finally {
+      $('refreshLocks').disabled = false;
+    }
+  }
+
+  function normalizeToken(token) {
+    return String(token || '').trim().replace(/^\/?api\/webhook\//u, '');
+  }
+
+  function generateToken() {
+    const bytes = new Uint8Array(24);
+    crypto.getRandomValues(bytes);
+    const binary = [...bytes].map(byte => String.fromCharCode(byte)).join('');
+    return btoa(binary).replace(/\+/gu, '-').replace(/\//gu, '_').replace(/=+$/u, '');
+  }
+
+  async function copyUrl() {
+    const url = value('webhook-url');
+    if (!url) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(url);
+      homebridge.toast.success('Webhook URL copied.');
+    } catch {
+      $('webhook-url').select();
+      document.execCommand('copy');
+      homebridge.toast.success('Webhook URL copied.');
+    }
+  }
+
+  async function saveConfig() {
+    $('saveConfig').disabled = true;
+    try {
+      await homebridge.updatePluginConfig([gatherConfig()]);
+      await homebridge.savePluginConfig();
+      setStatus('Saved');
+      homebridge.toast.success('AiSEG2 settings saved.');
+    } catch (error) {
+      setStatus(error.message || String(error), true);
+      homebridge.toast.error(error.message || String(error), 'Save failed');
+    } finally {
+      $('saveConfig').disabled = false;
+    }
+  }
+
+  function setStatus(message, isError) {
+    $('statusText').textContent = message || '';
+    $('statusText').classList.toggle('text-danger', Boolean(isError));
+  }
+
+  async function loadInitialData() {
+    pluginConfig = await homebridge.getPluginConfig();
+    config = mergeDefaults(DEFAULT_CONFIG, pluginConfig[0] || {});
+    const [tokenResult, addressResult] = await Promise.allSettled([
+      homebridge.request('/webhook-token', { config }),
+      homebridge.request('/local-address'),
+    ]);
+    if (!config.webhook.token && tokenResult.status === 'fulfilled' && tokenResult.value.token) {
+      config.webhook.token = tokenResult.value.token;
+    }
+    if (addressResult.status === 'fulfilled') {
+      localAddress = addressResult.value.address || '';
+    }
+    populateForm();
+    await refreshDoorLocks();
+  }
+
+  function bindEvents() {
+    for (const element of document.querySelectorAll('input, select, textarea')) {
+      element.addEventListener('input', scheduleConfigUpdate);
+      element.addEventListener('change', scheduleConfigUpdate);
+    }
+    $('generateToken').addEventListener('click', () => {
+      setValue('webhook-token', generateToken());
+      updateWebhookUrl();
+      scheduleConfigUpdate();
+      homebridge.toast.info('Token generated. Save settings to apply it.');
+    });
+    $('copyUrl').addEventListener('click', copyUrl);
+    $('refreshLocks').addEventListener('click', refreshDoorLocks);
+    $('saveConfig').addEventListener('click', saveConfig);
+  }
+
+  window.homebridge.addEventListener('ready', async () => {
+    try {
+      bindEvents();
+      await loadInitialData();
+    } catch (error) {
+      homebridge.toast.error(error.message || String(error), 'AiSEG2 settings');
+    } finally {
+      homebridge.hideSpinner();
+    }
+  });
+})();
+</script>
