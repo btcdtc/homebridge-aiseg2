@@ -431,7 +431,7 @@ export class AirPurifierAccessory {
       return;
     }
 
-    for (let count = 0; count < 8; count++) {
+    for (let count = 0; count < 3; count++) {
       await this.delay(1000);
       const result = await this.platform.client.checkAirPurifierChange(acceptId, this.device, token);
 
@@ -440,11 +440,16 @@ export class AirPurifierAccessory {
       }
 
       if (result === CheckResult.Invalid) {
-        break;
+        this.platform.log.debug(
+          `${this.device.displayName} operation status expired for acceptId=${acceptId}; confirming by current state`,
+        );
+        return;
       }
     }
 
-    throw new Error(`Timed out waiting for '${this.device.displayName}' to update`);
+    this.platform.log.debug(
+      `${this.device.displayName} operation status still pending for acceptId=${acceptId}; confirming by current state`,
+    );
   }
 
   private async confirmMode(actionId: number, mode: AirPurifierMode): Promise<void> {

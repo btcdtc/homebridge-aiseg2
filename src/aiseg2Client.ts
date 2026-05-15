@@ -755,6 +755,8 @@ export class Aiseg2Client {
   async getAirPurifierControlToken(device: AirPurifierDevice): Promise<string> {
     return this.getPageToken(
       `/page/devices/device/327?track=32&page=2&nodeid=${device.nodeId}&eoj=${device.eoj}&devtype=${device.type}`,
+      false,
+      'action',
     );
   }
 
