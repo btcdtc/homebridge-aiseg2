@@ -358,6 +358,10 @@ export class AirPurifierAccessory {
     if (!existingService) {
       service.setCharacteristic(this.platform.Characteristic.Name, serviceName);
     }
+    service.getCharacteristic(this.platform.Characteristic.StatusActive)
+      .onGet(() => true);
+    service.getCharacteristic(this.platform.Characteristic.StatusFault)
+      .onGet(() => this.platform.Characteristic.StatusFault.NO_FAULT);
 
     return service;
   }
@@ -410,6 +414,11 @@ export class AirPurifierAccessory {
   }
 
   private updateAirQualityService(service: Service, level: number | undefined): void {
+    service.updateCharacteristic(this.platform.Characteristic.StatusActive, true);
+    service.updateCharacteristic(
+      this.platform.Characteristic.StatusFault,
+      this.platform.Characteristic.StatusFault.NO_FAULT,
+    );
     service.updateCharacteristic(this.platform.Characteristic.AirQuality, this.airQualityFromLevel(level));
   }
 

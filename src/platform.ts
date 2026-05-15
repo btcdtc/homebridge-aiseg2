@@ -630,6 +630,13 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
               `get=[${(object.getProperties || []).join(', ')}] notify=[${(object.notificationProperties || []).join(', ')}]`,
             );
           }
+
+          if (object.classCode === '0x0135') {
+            this.log.info(
+              `ECHONET Lite air cleaner at ${node.host} exposes set=[${(object.setProperties || []).join(', ')}] ` +
+              `get=[${(object.getProperties || []).join(', ')}] notify=[${(object.notificationProperties || []).join(', ')}]`,
+            );
+          }
         }
       }
     } catch (error) {

@@ -382,6 +382,14 @@ const AIR_PURIFIER_STATUS_PATH = '/action/devices/device/327/get_operation_statu
 const AIR_ENVIRONMENT_DEVICE_PAGE_PATH = '/page/airenvironment/43';
 const AIR_ENVIRONMENT_DEVICE_AUTO_UPDATE_PATH = '/data/airenvironment/43/auto_update';
 const MAX_QUEUED_REQUESTS = 100;
+const PANASONIC_AIR_PURIFIER_MODE_EPC = 0xf0;
+const STANDARD_AIR_PURIFIER_AIRFLOW_EPC = 0xa0;
+const AIR_PURIFIER_MODE_STOP = '0x40';
+const AIR_PURIFIER_MODE_AUTO = '0x41';
+const AIR_PURIFIER_MODE_WEAK = '0x42';
+const AIR_PURIFIER_MODE_MEDIUM = '0x43';
+const AIR_PURIFIER_MODE_STRONG = '0x44';
+const AIR_PURIFIER_MODE_TURBO = '0x45';
 
 const FORM_HEADERS = {
   'X-Requested-With': 'XMLHttpRequest',
@@ -904,25 +912,26 @@ export class Aiseg2Client {
     const endpoint = this.echonetEndpointForAirPurifier(device);
     if (endpoint) {
       try {
-        const direct = await this.getEchonetAirPurifierStatus(endpoint);
-        const cachedSensors = this.airPurifierSensorStatusCache.get(this.airPurifierKey(device));
-        if (!force) {
-          void this.getAisegAirPurifierStatus(device, false, priority).catch(() => undefined);
-        }
-
+        const aisegStatus = await this.getAisegAirPurifierStatus(device, force, priority);
         return {
-          ...direct,
-          ...cachedSensors,
+          ...aisegStatus,
+          endpoint: formatEndpoint(endpoint),
         };
-      } catch (error) {
-        if (!this.echonetOptions.fallbackToAiseg) {
-          throw error;
+      } catch (aisegError) {
+        try {
+          const direct = await this.getEchonetAirPurifierStatus(endpoint);
+          const cachedSensors = this.airPurifierSensorStatusCache.get(this.airPurifierKey(device));
+          return {
+            ...direct,
+            ...cachedSensors,
+            fallbackReason: `AiSEG2 status failed: ${this.formatError(aisegError)}`,
+          };
+        } catch (echonetError) {
+          throw new Error(
+            `AiSEG2 status failed: ${this.formatError(aisegError)}; ` +
+            `ECHONET Lite status failed: ${this.formatError(echonetError)}`,
+          );
         }
-        const fallback = await this.getAisegAirPurifierStatus(device, force, priority);
-        return {
-          ...fallback,
-          fallbackReason: this.formatError(error),
-        };
       }
     }
 
@@ -1040,14 +1049,22 @@ export class Aiseg2Client {
   }
 
   private async getEchonetAirPurifierStatus(endpoint: EchonetLiteEndpoint): Promise<AirPurifierStatus> {
-    const values = await this.echonetClient.getProperties(endpoint, [0x80, 0xf0]);
+    const modeEpc = this.echonetAirPurifierModeEpc(endpoint, 'getProperties');
+    const values = await this.echonetClient.getProperties(
+      endpoint,
+      modeEpc ? [0x80, modeEpc] : [0x80],
+    );
     const state = this.hexByte(values.get(0x80)) || '0x31';
-    const mode = this.hexByte(values.get(0xf0)) || (state === '0x30' ? '0x41' : '0x40');
+    const mode = this.echonetAirPurifierModeFromValue(
+      modeEpc,
+      modeEpc ? this.hexByte(values.get(modeEpc)) : undefined,
+      state,
+    );
 
     return {
       state,
       mode,
-      active: state === '0x30' && mode !== '0x40',
+      active: state === '0x30' && mode !== AIR_PURIFIER_MODE_STOP,
       transport: 'ECHONET Lite',
       endpoint: formatEndpoint(endpoint),
     };
@@ -1181,11 +1198,16 @@ export class Aiseg2Client {
   }
 
   private async setEchonetAirPurifierMode(endpoint: EchonetLiteEndpoint, mode: string): Promise<void> {
-    const state = mode === '0x40' ? '0x31' : '0x30';
+    const state = mode === AIR_PURIFIER_MODE_STOP ? '0x31' : '0x30';
     await this.echonetClient.setProperty(endpoint, 0x80, bufferFromHexByte(state));
 
-    if (mode !== '0x40') {
-      await this.echonetClient.setProperty(endpoint, 0xf0, bufferFromHexByte(mode));
+    const modeEpc = this.echonetAirPurifierModeEpc(endpoint, 'setProperties');
+    if (mode !== AIR_PURIFIER_MODE_STOP && modeEpc) {
+      await this.echonetClient.setProperty(
+        endpoint,
+        modeEpc,
+        bufferFromHexByte(this.echonetAirPurifierModeToValue(modeEpc, mode)),
+      );
     }
   }
 
@@ -2714,6 +2736,83 @@ export class Aiseg2Client {
   private supportedGetEpcs(endpoint: EchonetLiteEndpoint, epcs: number[]): number[] {
     const supported = epcs.filter(epc => this.echonetObjectHasProperty(endpoint, 'getProperties', epc));
     return supported.length > 0 ? supported : epcs;
+  }
+
+  private echonetAirPurifierModeEpc(
+    endpoint: EchonetLiteEndpoint,
+    propertyMap: 'setProperties' | 'getProperties',
+  ): number | undefined {
+    if (this.echonetObjectHasProperty(endpoint, propertyMap, PANASONIC_AIR_PURIFIER_MODE_EPC)) {
+      return PANASONIC_AIR_PURIFIER_MODE_EPC;
+    }
+
+    if (this.echonetObjectHasProperty(endpoint, propertyMap, STANDARD_AIR_PURIFIER_AIRFLOW_EPC)) {
+      return STANDARD_AIR_PURIFIER_AIRFLOW_EPC;
+    }
+
+    return undefined;
+  }
+
+  private echonetAirPurifierModeFromValue(
+    epc: number | undefined,
+    value: string | undefined,
+    state: string,
+  ): string {
+    if (state !== '0x30') {
+      return AIR_PURIFIER_MODE_STOP;
+    }
+
+    if (!value) {
+      return AIR_PURIFIER_MODE_AUTO;
+    }
+
+    if (epc === PANASONIC_AIR_PURIFIER_MODE_EPC) {
+      return value;
+    }
+
+    if (epc === STANDARD_AIR_PURIFIER_AIRFLOW_EPC) {
+      if (value === '0x41') {
+        return AIR_PURIFIER_MODE_AUTO;
+      }
+
+      const level = Number.parseInt(value.replace(/^0x/u, ''), 16);
+      if (!Number.isFinite(level)) {
+        return AIR_PURIFIER_MODE_AUTO;
+      }
+
+      if (level <= 0x32) {
+        return AIR_PURIFIER_MODE_WEAK;
+      }
+      if (level <= 0x34) {
+        return AIR_PURIFIER_MODE_MEDIUM;
+      }
+      if (level <= 0x36) {
+        return AIR_PURIFIER_MODE_STRONG;
+      }
+
+      return AIR_PURIFIER_MODE_TURBO;
+    }
+
+    return AIR_PURIFIER_MODE_AUTO;
+  }
+
+  private echonetAirPurifierModeToValue(epc: number, mode: string): string {
+    if (epc === PANASONIC_AIR_PURIFIER_MODE_EPC) {
+      return mode;
+    }
+
+    switch (mode) {
+      case AIR_PURIFIER_MODE_WEAK:
+        return '0x31';
+      case AIR_PURIFIER_MODE_MEDIUM:
+        return '0x34';
+      case AIR_PURIFIER_MODE_STRONG:
+        return '0x36';
+      case AIR_PURIFIER_MODE_TURBO:
+        return '0x38';
+      default:
+        return '0x41';
+    }
   }
 
   private echonetObjectHasProperty(
