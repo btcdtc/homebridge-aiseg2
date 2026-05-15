@@ -195,6 +195,7 @@
   <section class="aiseg2-section">
     <div class="aiseg2-heading">
       <h2>EcoCute solar automation</h2>
+      <button class="btn btn-outline-secondary btn-sm" id="refreshEcocutes" type="button">Refresh EcoCute</button>
     </div>
     <div class="aiseg2-grid">
       <div class="form-check align-self-end mb-2">
@@ -206,8 +207,10 @@
         <label class="form-check-label" for="ecocute-auto-dryRun">Dry run</label>
       </div>
       <div>
-        <label class="form-label" for="ecocuteName">EcoCute name</label>
-        <input class="form-control" id="ecocuteName" type="text" autocomplete="off">
+        <label class="form-label" for="ecocuteName">EcoCute</label>
+        <select class="form-select" id="ecocuteName">
+          <option value="">Auto (single EcoCute)</option>
+        </select>
       </div>
       <div>
         <label class="form-label" for="allowedStartTime">Allowed start</label>
@@ -636,17 +639,43 @@
   }
 
   async function refreshDoorLocks() {
+    await refreshDeviceSelect({
+      endpoint: '/door-locks',
+      responseKey: 'doorLocks',
+      selectId: 'doorLockName',
+      buttonId: 'refreshLocks',
+      emptyLabel: 'Auto (single door lock)',
+      title: 'Door lock discovery',
+    });
+  }
+
+  async function refreshEcocutes() {
+    await refreshDeviceSelect({
+      endpoint: '/ecocutes',
+      responseKey: 'ecocutes',
+      selectId: 'ecocuteName',
+      buttonId: 'refreshEcocutes',
+      emptyLabel: 'Auto (single EcoCute)',
+      title: 'EcoCute discovery',
+    });
+  }
+
+  async function refreshDeviceSelect({ endpoint, responseKey, selectId, buttonId, emptyLabel, title }) {
     const current = gatherConfig();
-    $('refreshLocks').disabled = true;
+    $(buttonId).disabled = true;
     try {
-      const result = await homebridge.request('/door-locks', { config: current });
-      const existing = value('doorLockName');
-      const select = $('doorLockName');
-      select.innerHTML = '<option value="">Auto (single door lock)</option>';
-      for (const lock of result.doorLocks || []) {
+      const result = await homebridge.request(endpoint, { config: current });
+      const existing = value(selectId);
+      const select = $(selectId);
+      select.innerHTML = '';
+      const autoOption = document.createElement('option');
+      autoOption.value = '';
+      autoOption.textContent = emptyLabel;
+      select.appendChild(autoOption);
+      for (const device of result[responseKey] || []) {
         const option = document.createElement('option');
-        option.value = lock.name;
-        option.textContent = lock.name;
+        option.value = device.name;
+        option.textContent = device.name;
         select.appendChild(option);
       }
       if (existing && ![...select.options].some(option => option.value === existing)) {
@@ -655,16 +684,16 @@
         option.textContent = `${existing} (configured)`;
         select.appendChild(option);
       }
-      setValue('doorLockName', existing);
+      setValue(selectId, existing);
       if (result.error) {
-        homebridge.toast.warning(result.error, 'Door lock discovery');
+        homebridge.toast.warning(result.error, title);
       } else if (result.warning) {
-        homebridge.toast.info(result.warning, 'Door lock discovery');
+        homebridge.toast.info(result.warning, title);
       }
     } catch (error) {
-      homebridge.toast.error(error.message || String(error), 'Door lock discovery');
+      homebridge.toast.error(error.message || String(error), title);
     } finally {
-      $('refreshLocks').disabled = false;
+      $(buttonId).disabled = false;
     }
   }
 
@@ -714,7 +743,10 @@
       localAddress = addressResult.value.address || '';
     }
     populateForm();
-    await refreshDoorLocks();
+    await Promise.allSettled([
+      refreshDoorLocks(),
+      refreshEcocutes(),
+    ]);
   }
 
   function bindEvents() {
@@ -730,6 +762,7 @@
     });
     $('copyUrl').addEventListener('click', copyUrl);
     $('refreshLocks').addEventListener('click', refreshDoorLocks);
+    $('refreshEcocutes').addEventListener('click', refreshEcocutes);
   }
 
   window.homebridge.addEventListener('ready', async () => {

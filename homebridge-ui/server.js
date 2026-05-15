@@ -9,35 +9,37 @@ void (async () => {
       super();
 
       this.onRequest('/door-locks', this.handleDoorLocks.bind(this));
+      this.onRequest('/ecocutes', this.handleEcocutes.bind(this));
       this.onRequest('/webhook-token', this.handleWebhookToken.bind(this));
       this.onRequest('/local-address', this.handleLocalAddress.bind(this));
       this.ready();
     }
 
     async handleDoorLocks(payload) {
-      const config = payload && payload.config ? payload.config : {};
-
       try {
-        const { Aiseg2Client } = require('../dist/aiseg2Client');
-        const host = await this.resolveHost(config);
-        const password = String(config.password || '');
-
-        if (!host || !password) {
-          return { doorLocks: [], warning: 'AiSEG2 host and password are required to discover door locks.' };
-        }
-
-        const client = new Aiseg2Client(host, password);
-        const devices = await client.getDoorLockDevices();
+        const devices = await this.discoverNamedDevices(payload, client => client.getDoorLockDevices(), 'door locks');
         return {
-          doorLocks: devices.map(device => ({
-            name: device.displayName,
-            nodeId: device.nodeId,
-            eoj: device.eoj,
-          })),
+          doorLocks: devices.devices,
+          warning: devices.warning,
         };
       } catch (error) {
         return {
           doorLocks: [],
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+
+    async handleEcocutes(payload) {
+      try {
+        const devices = await this.discoverNamedDevices(payload, client => client.getEcocuteDevices(), 'EcoCute devices');
+        return {
+          ecocutes: devices.devices,
+          warning: devices.warning,
+        };
+      } catch (error) {
+        return {
+          ecocutes: [],
           error: error instanceof Error ? error.message : String(error),
         };
       }
@@ -83,6 +85,30 @@ void (async () => {
       const { discoverAiseg2Controller } = require('../dist/aiseg2Discovery');
       const result = await discoverAiseg2Controller(String(config.password || ''));
       return result.host;
+    }
+
+    async discoverNamedDevices(payload, loader, label) {
+      const config = payload && payload.config ? payload.config : {};
+      const { Aiseg2Client } = require('../dist/aiseg2Client');
+      const host = await this.resolveHost(config);
+      const password = String(config.password || '');
+
+      if (!host || !password) {
+        return {
+          devices: [],
+          warning: `AiSEG2 host and password are required to discover ${label}.`,
+        };
+      }
+
+      const client = new Aiseg2Client(host, password);
+      const devices = await loader(client);
+      return {
+        devices: devices.map(device => ({
+          name: device.displayName,
+          nodeId: device.nodeId,
+          eoj: device.eoj,
+        })),
+      };
     }
 
     normalizeToken(token) {
