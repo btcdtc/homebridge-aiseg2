@@ -283,6 +283,8 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       eoj: 'energy',
       type: 'energy',
       uuidSeed: 'aiseg2:energy',
+      hasSolar: Boolean(solarEndpoint),
+      hasBattery: Boolean(batteryEndpoint),
     };
     this.log.info('Discovered AiSEG2 energy status accessory');
     if (solarEndpoint) {

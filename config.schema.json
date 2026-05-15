@@ -133,7 +133,7 @@
             "title": "Show solar/battery status sensors",
             "type": "boolean",
             "default": false,
-            "description": "Adds contact-sensor style services for Solar Surplus, Battery Ready, Battery Discharging, and EcoCute Good Time. Raw W/kWh values are logged only."
+            "description": "Adds Detected/Not Detected status services for Solar Surplus, Battery Ready, Battery Discharging, and EcoCute Good Time, plus a Battery service when storage battery data is available. Raw W/kWh values are logged only."
           },
           "solarSurplusWatts": {
             "title": "Solar surplus threshold (W)",

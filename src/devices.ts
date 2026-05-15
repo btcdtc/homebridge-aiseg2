@@ -93,6 +93,8 @@ export interface EcocuteDevice extends Aiseg2Device {
 
 export interface EnergyDevice extends Aiseg2Device {
   kind: 'energy';
+  hasSolar: boolean;
+  hasBattery: boolean;
 }
 
 export interface AirEnvironmentSensorDevice extends Aiseg2Device {

@@ -131,9 +131,10 @@ switch controls and reflects `ふろ自動`, which keeps the bath filled/warm un
 exposed in HomeKit.
 
 Set `energy.enabled` to `true` to show ECHONET Lite household solar generation (`0x0279`) and storage battery (`0x027d`) status in
-Apple Home. Apple Home does not expose raw W/kWh power meters through Homebridge, so the plugin publishes derived Contact Sensor-style
-services: Solar Surplus, Battery Ready, Battery Discharging, and EcoCute Good Time. EcoCute solar automation reads energy data
-independently of this visibility option; raw values are logged at debug level.
+Apple Home. Apple Home does not expose raw W/kWh power meters through Homebridge, so the plugin publishes derived Detected/Not
+Detected status services for Solar Surplus, Battery Ready, Battery Discharging, and EcoCute Good Time, plus a Battery service for
+storage battery percentage when available. EcoCute solar automation reads energy data independently of this visibility option; raw
+values are logged at debug level.
 
 Set `ecocuteSolarAutomation.enabled` to `true` to allow the plugin to start EcoCute manual water heating when the configured solar,
 battery, weather, and time-window conditions are met. This automation only sends the manual water-heating ON command; it never sends
