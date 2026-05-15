@@ -1081,10 +1081,11 @@ export class Aiseg2Client {
 
   private async setEchonetAirPurifierMode(endpoint: EchonetLiteEndpoint, mode: string): Promise<void> {
     const state = mode === '0x40' ? '0x31' : '0x30';
-    await this.echonetClient.setProperties(endpoint, [
-      { epc: 0x80, edt: bufferFromHexByte(state) },
-      { epc: 0xf0, edt: bufferFromHexByte(mode) },
-    ]);
+    await this.echonetClient.setProperty(endpoint, 0x80, bufferFromHexByte(state));
+
+    if (mode !== '0x40') {
+      await this.echonetClient.setProperty(endpoint, 0xf0, bufferFromHexByte(mode));
+    }
   }
 
   private async setEchonetDoorLock(endpoint: EchonetLiteEndpoint, secured: boolean): Promise<void> {

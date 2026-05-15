@@ -123,6 +123,72 @@
             "description": "Optional map from AiSEG2 door lock display name to a HF-JA1/JA2 IP address when automatic matching is ambiguous."
           }
         }
+      },
+      "webhook": {
+        "title": "Webhook lock trigger",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "title": "Enable webhook",
+            "type": "boolean",
+            "default": false,
+            "description": "Starts a local HTTP endpoint for POST requests such as UniFi fingerprint triggers."
+          },
+          "port": {
+            "title": "Webhook port",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "default": 18582
+          },
+          "bind": {
+            "title": "Webhook bind address",
+            "type": "string",
+            "default": "0.0.0.0"
+          },
+          "publicHost": {
+            "title": "Webhook public host",
+            "type": "string",
+            "default": "",
+            "description": "Host or IP used only when logging the generated URL, for example 192.168.50.111."
+          },
+          "token": {
+            "title": "Webhook token",
+            "type": "string",
+            "default": "",
+            "description": "Secret URL token. Leave empty to auto-generate and persist one; the generated URL is printed in the Homebridge log."
+          },
+          "action": {
+            "title": "Webhook lock action",
+            "type": "string",
+            "default": "unlock",
+            "oneOf": [
+              {
+                "title": "Unlock only",
+                "enum": ["unlock"]
+              },
+              {
+                "title": "Toggle lock/unlock",
+                "enum": ["toggle"]
+              }
+            ],
+            "description": "Unlock only always requests unlock. Toggle unlocks when locked and locks when unlocked."
+          },
+          "doorLockName": {
+            "title": "Door lock name",
+            "type": "string",
+            "default": "",
+            "description": "Optional AiSEG2 door lock display name. Leave empty when only one door lock exists."
+          },
+          "cooldownSeconds": {
+            "title": "Webhook cooldown seconds",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 3600,
+            "default": 5,
+            "description": "Ignores repeated webhook posts for this many seconds to avoid duplicate fingerprint events toggling the lock back."
+          }
+        }
       }
     }
   }

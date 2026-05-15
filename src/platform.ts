@@ -25,6 +25,7 @@ import { ShutterAccessory } from './shutterAccessory';
 import { SmokeSensorAccessory } from './smokeSensorAccessory';
 import { Aiseg2Client } from './aiseg2Client';
 import { LightingDevice, SupportedDevice, SupportedDeviceKind } from './devices';
+import { Aiseg2WebhookServer } from './webhookServer';
 
 
 export class Aiseg2Platform implements DynamicPlatformPlugin {
@@ -34,6 +35,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
 
   public readonly accessories: PlatformAccessory[] = [];
   private readonly intervalHandles = new Set<ReturnType<typeof setInterval>>();
+  private webhookServer?: Aiseg2WebhookServer;
   private discoveredAccessoryUUIDs = new Set<string>();
 
   constructor(
@@ -66,6 +68,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   // Discover the various AiSEG2 device types that are compatible with Homekit
   async discoverDevices(): Promise<void> {
     await this.resolveClient();
+    this.startWebhookServer();
     await this.discoverEchonetLiteDevices();
     this.discoveredAccessoryUUIDs = new Set<string>();
     await this.discoverLighting();
@@ -551,6 +554,8 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       this.log.debug(`Cleared ${this.intervalHandles.size} AiSEG2 polling interval(s)`);
     }
     this.intervalHandles.clear();
+    this.webhookServer?.stop();
+    this.webhookServer = undefined;
   }
 
   private get configuredHost(): string {
@@ -588,6 +593,20 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       fallbackToAiseg: this.echonetBoolean('fallbackToAiseg', false),
       doorLockHosts: this.echonetStringMap('doorLockHosts'),
     });
+  }
+
+  private startWebhookServer(): void {
+    if (this.webhookServer) {
+      return;
+    }
+
+    const config = Aiseg2WebhookServer.configFrom(this.config.webhook);
+    if (!config.enabled) {
+      return;
+    }
+
+    this.webhookServer = new Aiseg2WebhookServer(this.log, this.api, config, () => this.client);
+    this.webhookServer.start();
   }
 
   private echonetBoolean(key: string, defaultValue: boolean): boolean {

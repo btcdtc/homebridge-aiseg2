@@ -53,6 +53,16 @@ write the discovered address back to `config.json`, and a configured `host` alwa
             "fallbackToAiseg": false,
             "doorLockHosts": {}
         },
+        "webhook": {
+            "enabled": false,
+            "port": 18582,
+            "bind": "0.0.0.0",
+            "publicHost": "",
+            "token": "",
+            "action": "unlock",
+            "doorLockName": "",
+            "cooldownSeconds": 5
+        },
         "platform": "AiSEG2"
     }]
 
@@ -88,6 +98,12 @@ EcoCute support uses AiSEG2 only to discover the named water heater and ECHONET 
 HomeKit switch turns on while manual water heating is active; turning it off sends the water-heating stop command. The automatic bath
 switch controls and reflects `ふろ自動`, which keeps the bath filled/warm until stopped. Automatic tank heating settings are not
 exposed in HomeKit.
+
+Set `webhook.enabled` to `true` to start a token-protected HTTP endpoint for external triggers such as UniFi fingerprint events.
+The endpoint accepts `POST /api/webhook/<token>` on `webhook.port`; leave `webhook.token` empty to auto-generate and persist one.
+The generated URL is printed in the Homebridge log, using `webhook.publicHost` when set. `webhook.action` can be `unlock` or
+`toggle`; use `unlock` for fingerprint unlock-only behavior, and `toggle` only when duplicate events are controlled by
+`webhook.cooldownSeconds`.
 
 ## Future Development
 
