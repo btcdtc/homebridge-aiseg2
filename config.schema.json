@@ -158,6 +158,26 @@
             "default": "",
             "description": "Secret URL token. Leave empty to auto-generate and persist one; the generated URL is printed in the Homebridge log."
           },
+          "method": {
+            "title": "Webhook HTTP method",
+            "type": "string",
+            "default": "post",
+            "oneOf": [
+              {
+                "title": "POST only",
+                "enum": ["post"]
+              },
+              {
+                "title": "GET only",
+                "enum": ["get"]
+              },
+              {
+                "title": "GET or POST",
+                "enum": ["any"]
+              }
+            ],
+            "description": "HTTP method accepted by the webhook endpoint. POST is safer; use GET only for integrations that cannot send POST."
+          },
           "action": {
             "title": "Webhook lock action",
             "type": "string",

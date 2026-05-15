@@ -59,6 +59,7 @@ write the discovered address back to `config.json`, and a configured `host` alwa
             "bind": "0.0.0.0",
             "publicHost": "",
             "token": "",
+            "method": "post",
             "action": "unlock",
             "doorLockName": "",
             "cooldownSeconds": 5
@@ -100,9 +101,10 @@ switch controls and reflects `ふろ自動`, which keeps the bath filled/warm un
 exposed in HomeKit.
 
 Set `webhook.enabled` to `true` to start a token-protected HTTP endpoint for external triggers such as UniFi fingerprint events.
-The endpoint accepts `POST /api/webhook/<token>` on `webhook.port`; leave `webhook.token` empty to auto-generate and persist one.
-The generated URL is printed in the Homebridge log, using `webhook.publicHost` when set. `webhook.action` can be `unlock` or
-`toggle`; use `unlock` for fingerprint unlock-only behavior, and `toggle` only when duplicate events are controlled by
+The endpoint accepts `/api/webhook/<token>` on `webhook.port`; leave `webhook.token` empty to auto-generate and persist one. The
+generated URL is printed in the Homebridge log, using `webhook.publicHost` when set. `webhook.method` can be `post`, `get`, or
+`any`; POST is the safer default, and GET should be used only when the triggering system cannot send POST. `webhook.action` can be
+`unlock` or `toggle`; use `unlock` for fingerprint unlock-only behavior, and `toggle` only when duplicate events are controlled by
 `webhook.cooldownSeconds`.
 
 ## Future Development

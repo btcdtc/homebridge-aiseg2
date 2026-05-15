@@ -11,6 +11,7 @@ import { DoorLockDevice } from './devices';
 
 
 export type WebhookLockAction = 'unlock' | 'toggle';
+export type WebhookMethod = 'post' | 'get' | 'any';
 
 export interface WebhookServerConfig {
   enabled: boolean;
@@ -18,6 +19,7 @@ export interface WebhookServerConfig {
   bind: string;
   publicHost: string;
   token: string;
+  method: WebhookMethod;
   action: WebhookLockAction;
   doorLockName: string;
   cooldownSeconds: number;
@@ -57,7 +59,7 @@ export class Aiseg2WebhookServer {
       this.log.error(`AiSEG2 webhook server failed: ${this.formatError(error)}`);
     });
     this.server.listen(this.config.port, this.config.bind, () => {
-      this.log.info(`AiSEG2 webhook listening: POST ${this.webhookUrl()}`);
+      this.log.info(`AiSEG2 webhook listening: ${this.allowedMethodLabel()} ${this.webhookUrl()}`);
       this.log.info(
         `AiSEG2 webhook lock action: ${this.config.action}` +
         (this.config.doorLockName ? `, target=${this.config.doorLockName}` : ', target=auto'),
@@ -79,6 +81,7 @@ export class Aiseg2WebhookServer {
       ? value as Record<string, unknown>
       : {};
     const action = config.action === 'toggle' ? 'toggle' : 'unlock';
+    const method = this.webhookMethodFrom(config.method);
 
     return {
       enabled: typeof config.enabled === 'boolean' ? config.enabled : false,
@@ -86,6 +89,7 @@ export class Aiseg2WebhookServer {
       bind: this.stringFrom(config.bind, DEFAULT_WEBHOOK_BIND),
       publicHost: this.stringFrom(config.publicHost, ''),
       token: this.stringFrom(config.token, ''),
+      method,
       action,
       doorLockName: this.stringFrom(config.doorLockName, ''),
       cooldownSeconds: this.numberFrom(
@@ -105,8 +109,8 @@ export class Aiseg2WebhookServer {
         return;
       }
 
-      if (request.method !== 'POST') {
-        response.setHeader('Allow', 'POST');
+      if (!this.acceptsMethod(request.method || '')) {
+        response.setHeader('Allow', this.allowedHttpMethods().join(', '));
         this.writeJson(response, 405, { ok: false, error: 'method not allowed' });
         return;
       }
@@ -250,6 +254,25 @@ export class Aiseg2WebhookServer {
     return `${WEBHOOK_PATH_PREFIX}${this.token}`;
   }
 
+  private acceptsMethod(method: string): boolean {
+    return this.allowedHttpMethods().includes(method.toUpperCase());
+  }
+
+  private allowedHttpMethods(): string[] {
+    switch (this.config.method) {
+      case 'get':
+        return ['GET'];
+      case 'any':
+        return ['GET', 'POST'];
+      default:
+        return ['POST'];
+    }
+  }
+
+  private allowedMethodLabel(): string {
+    return this.allowedHttpMethods().join('|');
+  }
+
   private localIpv4Address(): string | undefined {
     for (const addresses of Object.values(networkInterfaces())) {
       for (const address of addresses || []) {
@@ -316,5 +339,15 @@ export class Aiseg2WebhookServer {
 
   private static stringFrom(value: unknown, defaultValue: string): string {
     return typeof value === 'string' ? value.trim() : defaultValue;
+  }
+
+  private static webhookMethodFrom(value: unknown): WebhookMethod {
+    switch (value) {
+      case 'get':
+      case 'any':
+        return value;
+      default:
+        return 'post';
+    }
   }
 }
