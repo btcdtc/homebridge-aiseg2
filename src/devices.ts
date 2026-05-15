@@ -16,6 +16,7 @@ export type SupportedDeviceKind =
   | 'airConditioner'
   | 'shutter'
   | 'airPurifier'
+  | 'ecocute'
   | 'airEnvironmentSensor'
   | 'doorLock'
   | 'contactSensor'
@@ -85,6 +86,10 @@ export interface AirPurifierDevice extends Aiseg2Device {
   mode?: string;
 }
 
+export interface EcocuteDevice extends Aiseg2Device {
+  kind: 'ecocute';
+}
+
 export interface AirEnvironmentSensorDevice extends Aiseg2Device {
   kind: 'airEnvironmentSensor';
   deviceIndex: number;
@@ -121,6 +126,7 @@ export type SupportedDevice =
   | AirConditionerDevice
   | ShutterDevice
   | AirPurifierDevice
+  | EcocuteDevice
   | AirEnvironmentSensorDevice
   | DoorLockDevice
   | ContactSensorDevice

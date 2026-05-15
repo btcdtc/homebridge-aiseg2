@@ -49,6 +49,12 @@
         "default": true,
         "description": "Marks each temperature service as the primary HomeKit service and links its paired humidity sensor to it."
       },
+      "groupEcocuteServices": {
+        "title": "Group EcoCute services",
+        "type": "boolean",
+        "default": true,
+        "description": "Marks the manual water-heating switch as the primary HomeKit service and links automatic bath and temperature services to it."
+      },
       "exposeContactSensorLockState": {
         "title": "Expose contact sensor lock state",
         "type": "boolean",
@@ -76,7 +82,7 @@
             "title": "Enable ECHONET Lite direct control",
             "type": "boolean",
             "default": false,
-            "description": "Enables direct ECHONET Lite status/control for automatically matched shutters, door locks, and air purifiers. AiSEG2 remains the discovery source and fallback path."
+            "description": "Enables direct ECHONET Lite status/control for automatically matched shutters, door locks, air purifiers, and EcoCute devices. AiSEG2 remains the discovery source."
           },
           "subnets": {
             "title": "ECHONET Lite subnets",
@@ -98,6 +104,17 @@
             "title": "Prefer ECHONET Lite for air purifiers",
             "type": "boolean",
             "default": true
+          },
+          "preferEcocutes": {
+            "title": "Prefer ECHONET Lite for EcoCute devices",
+            "type": "boolean",
+            "default": true
+          },
+          "fallbackToAiseg": {
+            "title": "Fallback to AiSEG2 when ECHONET Lite fails",
+            "type": "boolean",
+            "default": false,
+            "description": "If enabled, matched shutters, door locks, and air purifiers retry through AiSEG2 when direct ECHONET Lite requests fail. EcoCute direct control requires ECHONET Lite."
           },
           "doorLockHosts": {
             "title": "Door lock host overrides",

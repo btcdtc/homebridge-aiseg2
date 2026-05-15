@@ -10,6 +10,7 @@ import {
   AirPurifierDevice,
   ContactSensorDevice,
   DoorLockDevice,
+  EcocuteDevice,
   LightingDevice,
   ShutterDevice,
   SmokeSensorDevice,
@@ -109,6 +110,31 @@ export interface AirPurifierStatus {
 export interface AirEnvironmentStatus {
   temperature?: number;
   humidity?: number;
+}
+
+export enum EcocuteWaterHeatingMode {
+  Auto = '0x41',
+  ManualHeating = '0x42',
+  ManualStop = '0x43',
+}
+
+export interface EcocuteStatus {
+  operationState: string;
+  waterHeatingMode?: string;
+  waterHeatingStatus?: string;
+  tankMode?: string;
+  daytimeReheating?: boolean;
+  bathAuto?: boolean;
+  tankTemperature?: number;
+  suppliedWaterTemperature?: number;
+  bathWaterTemperature?: number;
+  remainingWaterLiters?: number;
+  tankCapacityLiters?: number;
+  hotWaterSupplyStatus?: string;
+  bathOperationStatus?: string;
+  bathWaterVolume?: number;
+  transport?: ControlTransport;
+  endpoint?: string;
 }
 
 export interface DoorLockStatus {
@@ -305,6 +331,8 @@ export interface EchonetControlOptions {
   preferShutters: boolean;
   preferDoorLocks: boolean;
   preferAirPurifiers: boolean;
+  preferEcocutes: boolean;
+  fallbackToAiseg: boolean;
   doorLockHosts: Record<string, string>;
 }
 
@@ -372,6 +400,8 @@ export class Aiseg2Client {
     preferShutters: false,
     preferDoorLocks: false,
     preferAirPurifiers: false,
+    preferEcocutes: false,
+    fallbackToAiseg: false,
     doorLockHosts: {},
   };
 
@@ -390,6 +420,8 @@ export class Aiseg2Client {
       preferShutters: options.preferShutters ?? true,
       preferDoorLocks: options.preferDoorLocks ?? true,
       preferAirPurifiers: options.preferAirPurifiers ?? true,
+      preferEcocutes: options.preferEcocutes ?? true,
+      fallbackToAiseg: options.fallbackToAiseg ?? false,
       doorLockHosts: options.doorLockHosts ?? {},
     };
   }
@@ -422,6 +454,23 @@ export class Aiseg2Client {
     }
 
     return this.findEchonetEndpoint(['0x0135'], normalizeEoj(device.eoj));
+  }
+
+  echonetEndpointForEcocute(device: EcocuteDevice): EchonetLiteEndpoint | undefined {
+    if (!this.echonetOptions.enabled || !this.echonetOptions.preferEcocutes) {
+      return undefined;
+    }
+
+    return this.findEchonetEndpoint(['0x026b'], normalizeEoj(device.eoj));
+  }
+
+  ecocuteCanSet(device: EcocuteDevice, epc: number): boolean {
+    const endpoint = this.echonetEndpointForEcocute(device);
+    if (!endpoint) {
+      return false;
+    }
+
+    return this.echonetObjectHasProperty(endpoint, 'setProperties', epc);
   }
 
   echonetEndpointForDoorLock(device: DoorLockDevice): EchonetLiteEndpoint | undefined {
@@ -552,6 +601,24 @@ export class Aiseg2Client {
         type: summary.type,
         uuidSeed: uuidSeedFor({
           kind: 'airPurifier',
+          nodeId: summary.nodeId,
+          eoj: summary.eoj,
+          type: summary.type,
+        }),
+      }));
+  }
+
+  async getEcocuteDevices(): Promise<EcocuteDevice[]> {
+    return (await this.getDeviceSummaries())
+      .filter(device => device.type === Aiseg2DeviceType.Ecocute)
+      .map(summary => ({
+        kind: 'ecocute',
+        displayName: displayNameFromSummary(summary),
+        nodeId: summary.nodeId,
+        eoj: summary.eoj,
+        type: summary.type,
+        uuidSeed: uuidSeedFor({
+          kind: 'ecocute',
           nodeId: summary.nodeId,
           eoj: summary.eoj,
           type: summary.type,
@@ -766,6 +833,9 @@ export class Aiseg2Client {
       try {
         return await this.getEchonetShutterStatus(endpoint);
       } catch (error) {
+        if (!this.echonetOptions.fallbackToAiseg) {
+          throw error;
+        }
         const fallback = await this.getAisegShutterStatus(device, force, priority);
         return {
           ...fallback,
@@ -817,6 +887,9 @@ export class Aiseg2Client {
           ...cachedSensors,
         };
       } catch (error) {
+        if (!this.echonetOptions.fallbackToAiseg) {
+          throw error;
+        }
         const fallback = await this.getAisegAirPurifierStatus(device, force, priority);
         return {
           ...fallback,
@@ -855,6 +928,15 @@ export class Aiseg2Client {
     return status;
   }
 
+  async getEcocuteStatus(device: EcocuteDevice): Promise<EcocuteStatus> {
+    const endpoint = this.echonetEndpointForEcocute(device);
+    if (!endpoint) {
+      throw new Error(`No matching ECHONET Lite endpoint for EcoCute '${device.displayName}'`);
+    }
+
+    return this.getEchonetEcocuteStatus(endpoint);
+  }
+
   async getAirEnvironmentStatus(device: AirEnvironmentSensorDevice, force = false): Promise<AirEnvironmentStatus> {
     const statuses = await this.getAirEnvironmentStatuses(force);
     return statuses.get(this.airEnvironmentDeviceKey(device)) || {};
@@ -870,6 +952,9 @@ export class Aiseg2Client {
       try {
         return await this.getEchonetDoorLockStatus(endpoint);
       } catch (error) {
+        if (!this.echonetOptions.fallbackToAiseg) {
+          throw error;
+        }
         const fallback = await this.getAisegDoorLockStatus(device, force, priority);
         return {
           ...fallback,
@@ -932,6 +1017,46 @@ export class Aiseg2Client {
       lockVal: secured === true ? 'lock_val' : secured === false ? 'lock_val open' : '',
       statecmd: secured === true ? '0x31' : secured === false ? '0x30' : '',
       secured,
+      transport: 'ECHONET Lite',
+      endpoint: formatEndpoint(endpoint),
+    };
+  }
+
+  private async getEchonetEcocuteStatus(endpoint: EchonetLiteEndpoint): Promise<EcocuteStatus> {
+    const requestedEpcs = [
+      0x80, // Operation status
+      0xb0, // Automatic/manual water heating setting
+      0xb2, // Heating status
+      0xb3, // Water heating temperature setting
+      0xb6, // Tank mode
+      0xc0, // Daytime reheating permission
+      0xc1, // Tank water temperature
+      0xc3, // Hot water supply status
+      0xd1, // Supplied water temperature setting
+      0xd3, // Bath water temperature setting
+      0xe1, // Remaining water
+      0xe2, // Tank capacity
+      0xe3, // Automatic bath operation
+      0xea, // Bath operation status
+      0xee, // Bath water volume
+    ].filter(epc => this.echonetObjectHasProperty(endpoint, 'getProperties', epc));
+    const values = await this.echonetClient.getProperties(endpoint, requestedEpcs);
+
+    return {
+      operationState: this.hexByte(values.get(0x80)) || '0x31',
+      waterHeatingMode: this.hexByte(values.get(0xb0)),
+      waterHeatingStatus: this.hexByte(values.get(0xb2)),
+      tankMode: this.hexByte(values.get(0xb6)),
+      daytimeReheating: this.boolean41(values.get(0xc0)),
+      bathAuto: this.boolean41(values.get(0xe3)),
+      tankTemperature: this.unsignedNumber(values.get(0xc1)),
+      suppliedWaterTemperature: this.unsignedNumber(values.get(0xd1)),
+      bathWaterTemperature: this.unsignedNumber(values.get(0xd3)),
+      remainingWaterLiters: this.unsignedNumber(values.get(0xe1)),
+      tankCapacityLiters: this.unsignedNumber(values.get(0xe2)),
+      hotWaterSupplyStatus: this.hexByte(values.get(0xc3)),
+      bathOperationStatus: this.hexByte(values.get(0xea)),
+      bathWaterVolume: this.unsignedNumber(values.get(0xee)),
       transport: 'ECHONET Lite',
       endpoint: formatEndpoint(endpoint),
     };
@@ -1146,6 +1271,9 @@ export class Aiseg2Client {
           endpoint: formatEndpoint(endpoint),
         };
       } catch (error) {
+        if (!this.echonetOptions.fallbackToAiseg) {
+          throw error;
+        }
         const fallback = await this.changeAisegShutterPosition(device, token, targetPosition);
         return {
           ...fallback,
@@ -1193,6 +1321,9 @@ export class Aiseg2Client {
           endpoint: formatEndpoint(endpoint),
         };
       } catch (error) {
+        if (!this.echonetOptions.fallbackToAiseg) {
+          throw error;
+        }
         const fallback = await this.stopAisegShutter(device, token);
         return {
           ...fallback,
@@ -1255,6 +1386,9 @@ export class Aiseg2Client {
           endpoint: formatEndpoint(endpoint),
         };
       } catch (error) {
+        if (!this.echonetOptions.fallbackToAiseg) {
+          throw error;
+        }
         const fallback = await this.changeAisegAirPurifierMode(device, token, mode);
         return {
           ...fallback,
@@ -1296,6 +1430,42 @@ export class Aiseg2Client {
     };
   }
 
+  async changeEcocuteWaterHeatingMode(device: EcocuteDevice, mode: EcocuteWaterHeatingMode): Promise<OperationResponse> {
+    const endpoint = this.echonetEndpointForEcocute(device);
+    if (!endpoint) {
+      throw new Error(`No matching ECHONET Lite endpoint for EcoCute '${device.displayName}'`);
+    }
+
+    if (!this.echonetObjectHasProperty(endpoint, 'setProperties', 0xb0)) {
+      throw new Error(`EcoCute '${device.displayName}' does not expose water heating control`);
+    }
+
+    await this.echonetClient.setProperty(endpoint, 0xb0, bufferFromHexByte(mode));
+    return {
+      result: CheckResult.OK,
+      transport: 'ECHONET Lite',
+      endpoint: formatEndpoint(endpoint),
+    };
+  }
+
+  async changeEcocuteBathAuto(device: EcocuteDevice, enabled: boolean): Promise<OperationResponse> {
+    const endpoint = this.echonetEndpointForEcocute(device);
+    if (!endpoint) {
+      throw new Error(`No matching ECHONET Lite endpoint for EcoCute '${device.displayName}'`);
+    }
+
+    if (!this.echonetObjectHasProperty(endpoint, 'setProperties', 0xe3)) {
+      throw new Error(`EcoCute '${device.displayName}' does not expose automatic bath control`);
+    }
+
+    await this.echonetClient.setProperty(endpoint, 0xe3, bufferFromHexByte(enabled ? 0x41 : 0x42));
+    return {
+      result: CheckResult.OK,
+      transport: 'ECHONET Lite',
+      endpoint: formatEndpoint(endpoint),
+    };
+  }
+
   async changeDoorLock(device: DoorLockDevice, token: string, status: DoorLockStatus): Promise<OperationResponse> {
     const endpoint = this.echonetEndpointForDoorLock(device);
     if (endpoint && status.secured !== undefined) {
@@ -1309,6 +1479,9 @@ export class Aiseg2Client {
           endpoint: formatEndpoint(endpoint),
         };
       } catch (error) {
+        if (!this.echonetOptions.fallbackToAiseg) {
+          throw error;
+        }
         const fallback = await this.changeAisegDoorLock(device, token, status);
         return {
           ...fallback,
@@ -2254,13 +2427,12 @@ export class Aiseg2Client {
       return true;
     }
 
-    const object = this.findEchonetObject(endpoint);
-    return Boolean(object?.setProperties?.includes('0xe1'));
+    return this.echonetObjectHasProperty(endpoint, 'setProperties', 0xe1);
   }
 
   private canSetTimedEchonetShutterPosition(endpoint: EchonetLiteEndpoint): boolean {
-    const object = this.findEchonetObject(endpoint);
-    return Boolean(object?.setProperties?.includes('0xd2') && object.setProperties.includes('0xe9'));
+    return this.echonetObjectHasProperty(endpoint, 'setProperties', 0xd2) &&
+      this.echonetObjectHasProperty(endpoint, 'setProperties', 0xe9);
   }
 
   private echonetShutterCommandForTarget(targetPosition: number): number {
@@ -2392,6 +2564,36 @@ export class Aiseg2Client {
     }
 
     return `0x${value[0].toString(16).padStart(2, '0')}`;
+  }
+
+  private boolean41(value: Buffer | undefined): boolean | undefined {
+    const byte = this.hexByte(value);
+    if (byte === '0x41') {
+      return true;
+    }
+
+    if (byte === '0x42') {
+      return false;
+    }
+
+    return undefined;
+  }
+
+  private unsignedNumber(value: Buffer | undefined): number | undefined {
+    if (!value || value.length === 0 || value.every(byte => byte === 0xff) || value[0] === 0xfd || value[0] === 0xfe) {
+      return undefined;
+    }
+
+    return [...value].reduce((number, byte) => (number * 256) + byte, 0);
+  }
+
+  private echonetObjectHasProperty(
+    endpoint: EchonetLiteEndpoint,
+    propertyMap: 'setProperties' | 'getProperties' | 'notificationProperties',
+    epc: number,
+  ): boolean {
+    const object = this.findEchonetObject(endpoint);
+    return Boolean(object?.[propertyMap]?.includes(`0x${epc.toString(16).padStart(2, '0')}`));
   }
 
   private formatError(error: unknown): string {

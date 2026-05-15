@@ -83,6 +83,7 @@ const DEVICE_CLASSES: Record<string, DeviceClassInfo> = {
   '0x0264': { className: 'Electrically operated gate', shortName: 'electricGate' },
   '0x0265': { className: 'Electrically operated window', shortName: 'electricWindow' },
   '0x0266': { className: 'Automatically operated entrance door/sliding door', shortName: 'automaticEntranceDoor' },
+  '0x026b': { className: 'Electric water heater', shortName: 'electricWaterHeater' },
   '0x026f': { className: 'Electric lock', shortName: 'electricLock' },
   '0x0279': { className: 'Home solar power generation', shortName: 'homeSolarPowerGeneration' },
   '0x027d': { className: 'Storage battery', shortName: 'storageBattery' },

@@ -16,6 +16,7 @@ This plugin supports the following AiSEG2 devices:
 * AiSEG2 air conditioners as HomeKit Heater Cooler accessories with indoor humidity, outdoor temperature, fan, humidity, and extra mode services
 * AiSEG2 shutters as HomeKit Window Covering accessories
 * AiSEG2 air purifiers as HomeKit Air Purifier accessories with separate AirMe/Eco mode switches and odor, PM2.5, and house dust Air Quality Sensor services
+* AiSEG2 EcoCute heat pump water systems as HomeKit Switch and Temperature Sensor services when matched to ECHONET Lite
 * AiSEG2 air environment sensors as HomeKit Temperature Sensor and Humidity Sensor services
 * AiSEG2 electric door locks as HomeKit Lock Mechanism accessories
 * AiSEG2 open/close and window lock sensors as HomeKit Contact Sensor accessories, optionally with read-only lock-state Contact Sensor services
@@ -38,6 +39,7 @@ write the discovered address back to `config.json`, and a configured `host` alwa
         "groupAirPurifierSensors": true,
         "groupAirConditionerSensors": true,
         "groupAirEnvironmentSensors": true,
+        "groupEcocuteServices": true,
         "exposeContactSensorLockState": false,
         "echonetDiscovery": false,
         "echonetSubnets": "",
@@ -47,6 +49,8 @@ write the discovered address back to `config.json`, and a configured `host` alwa
             "preferShutters": true,
             "preferDoorLocks": true,
             "preferAirPurifiers": true,
+            "preferEcocutes": true,
+            "fallbackToAiseg": false,
             "doorLockHosts": {}
         },
         "platform": "AiSEG2"
@@ -58,7 +62,7 @@ interfaces and does not use mDNS or cross-VLAN routing.
 Grouping options use HomeKit primary/linked services so related measurements stay associated with the same accessory. Air purifiers
 link odor, PM2.5, house dust, and AirMe/Eco mode switches to the purifier service. Air conditioners link indoor humidity, outdoor
 temperature, fan, humidity, and extra mode services to the heater cooler service. Air environment sensors link humidity to the
-paired temperature service.
+paired temperature service. EcoCute devices link automatic bath and temperature services to the manual water-heating switch.
 
 For air purifiers with AirMe/Eco automatic modes, HomeKit's generic Auto target maps to AirMe by default. Eco remains available as
 a separate mode switch.
@@ -71,13 +75,19 @@ the host's current local IPv4 subnets, or set a comma-separated list such as `19
 top-level discovery option is diagnostic; `echonet.enabled` below also runs discovery and uses matched endpoints for direct control.
 
 Set `echonet.enabled` to `true` to prefer direct ECHONET Lite control for devices that can be matched automatically. AiSEG2 still
-provides the accessory names and remains the fallback path. Shutters and air purifiers are matched by EOJ after ECHONET discovery;
-HF-JA1/HF-JA2 door locks are matched automatically when exactly one endpoint is found. Use `echonet.doorLockHosts` only if multiple
-door lock endpoints exist. Startup and action logs show whether each accessory uses ECHONET Lite or AiSEG2.
+provides the accessory names. Shutters, air purifiers, and EcoCute devices are matched by EOJ after ECHONET discovery; HF-JA1/HF-JA2
+door locks are matched automatically when exactly one endpoint is found. Use `echonet.doorLockHosts` only if multiple door lock
+endpoints exist. Startup and action logs show whether each accessory uses ECHONET Lite or AiSEG2. Set `echonet.fallbackToAiseg` to
+`true` only if you want shutters, door locks, and air purifiers to retry through AiSEG2 when direct ECHONET Lite fails.
 
 Direct shutter position control is used only when the ECHONET endpoint advertises the standard degree-of-opening property (`0xe1`).
 Some shutters expose timed movement (`0xd2`/`0xe9`) instead; the plugin does not treat that as exact percentage feedback and keeps
 AiSEG2 as the fallback for half-open commands.
+
+EcoCute support uses AiSEG2 only to discover the named water heater and ECHONET Lite for status/control. The manual water-heating
+HomeKit switch turns on while manual water heating is active; turning it off sends the water-heating stop command. The automatic bath
+switch controls and reflects `ふろ自動`, which keeps the bath filled/warm until stopped. Automatic tank heating settings are not
+exposed in HomeKit.
 
 ## Future Development
 
@@ -85,7 +95,6 @@ Additional AiSEG2 device classes may be added where HomeKit has a reasonable map
 
 * Call button alerts
 * Delivery box alerts
-* EcoCute heat pump water systems
 * EV chargers
 * Gas hot water systems
 * Rangehoods

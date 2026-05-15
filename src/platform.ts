@@ -19,6 +19,7 @@ import { AirEnvironmentSensorAccessory } from './airEnvironmentSensorAccessory';
 import { AirPurifierAccessory } from './airPurifierAccessory';
 import { ContactSensorAccessory } from './contactSensorAccessory';
 import { DoorLockAccessory } from './doorLockAccessory';
+import { EcocuteAccessory } from './ecocuteAccessory';
 import { LightingAccessory } from './lightingAccessory';
 import { ShutterAccessory } from './shutterAccessory';
 import { SmokeSensorAccessory } from './smokeSensorAccessory';
@@ -74,6 +75,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     await this.discoverAirEnvironmentSensors();
     await this.discoverShutters();
     await this.discoverAirPurifiers();
+    await this.discoverEcocutes();
     await this.discoverDoorLocks();
     this.unregisterStaleAccessories();
   }
@@ -230,6 +232,30 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     }
   }
 
+  async discoverEcocutes(): Promise<void> {
+    this.log.debug('Fetching EcoCute devices from AiSEG2');
+    const devices = await this.client.getEcocuteDevices();
+
+    for (const device of devices) {
+      this.log.info(`Discovered EcoCute '${device.displayName}'`);
+      const endpoint = this.client.echonetEndpointForEcocute(device);
+      if (!endpoint) {
+        if (this.echonetEnabled && this.echonetBoolean('preferEcocutes', true)) {
+          this.log.info(`Skipping EcoCute '${device.displayName}': no matching ECHONET endpoint`);
+        } else {
+          this.log.debug(`Skipping EcoCute '${device.displayName}': ECHONET Lite direct control is disabled`);
+        }
+        continue;
+      }
+
+      this.log.info(`ECHONET mapped EcoCute '${device.displayName}' -> ${endpoint.host}/${endpoint.eoj}`);
+      this.log.info(
+        `ECHONET EcoCute '${device.displayName}' exposes HomeKit switches for manual heating and automatic bath where supported`,
+      );
+      this.provisionDevice(device);
+    }
+  }
+
   async discoverAirEnvironmentSensors(): Promise<void> {
     this.log.debug('Fetching air environment sensors from AiSEG2');
     const devices = await this.client.getAirEnvironmentSensorDevices();
@@ -284,6 +310,9 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       case 'airPurifier':
         new AirPurifierAccessory(this, accessory);
         break;
+      case 'ecocute':
+        new EcocuteAccessory(this, accessory);
+        break;
       case 'doorLock':
         new DoorLockAccessory(this, accessory);
         break;
@@ -307,6 +336,8 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
         return this.api.hap.Categories.WINDOW_COVERING;
       case 'airPurifier':
         return this.api.hap.Categories.AIR_PURIFIER;
+      case 'ecocute':
+        return this.api.hap.Categories.SWITCH;
       case 'doorLock':
         return this.api.hap.Categories.DOOR_LOCK;
       default:
@@ -339,6 +370,10 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
 
   public get groupAirEnvironmentSensors(): boolean {
     return this.configBoolean('groupAirEnvironmentSensors', true);
+  }
+
+  public get groupEcocuteServices(): boolean {
+    return this.configBoolean('groupEcocuteServices', true);
   }
 
   public get exposeContactSensorLockState(): boolean {
@@ -437,7 +472,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
 
     this.log.info(`Discovering ECHONET Lite devices on ${targetDescription}`);
     if (this.echonetEnabled) {
-      this.log.info('ECHONET Lite direct control enabled for matched shutters, door locks, and air purifiers');
+      this.log.info('ECHONET Lite direct control enabled for matched shutters, door locks, air purifiers, and EcoCute devices');
     }
 
     try {
@@ -549,6 +584,8 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       preferShutters: this.echonetBoolean('preferShutters', true),
       preferDoorLocks: this.echonetBoolean('preferDoorLocks', true),
       preferAirPurifiers: this.echonetBoolean('preferAirPurifiers', true),
+      preferEcocutes: this.echonetBoolean('preferEcocutes', true),
+      fallbackToAiseg: this.echonetBoolean('fallbackToAiseg', false),
       doorLockHosts: this.echonetStringMap('doorLockHosts'),
     });
   }

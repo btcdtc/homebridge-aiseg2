@@ -41,6 +41,13 @@ export class EchonetLiteClient {
   ): Promise<Map<number, Buffer>> {
     const response = await this.request(endpoint, GET_ESV, epcs.map(epc => ({ epc, edt: Buffer.alloc(0) })), timeoutMs);
     if (response.esv === GET_SNA_ESV) {
+      if (epcs.length > 1) {
+        const individualValues = await this.getPropertiesIndividually(endpoint, epcs, timeoutMs);
+        if (individualValues.size > 0) {
+          return individualValues;
+        }
+      }
+
       throw new Error(`ECHONET Lite ${formatEndpoint(endpoint)} rejected get request`);
     }
 
@@ -52,6 +59,25 @@ export class EchonetLiteClient {
     for (const property of response.properties) {
       if (property.edt.length > 0) {
         values.set(property.epc, property.edt);
+      }
+    }
+
+    return values;
+  }
+
+  private async getPropertiesIndividually(
+    endpoint: EchonetLiteEndpoint,
+    epcs: number[],
+    timeoutMs: number,
+  ): Promise<Map<number, Buffer>> {
+    const values = new Map<number, Buffer>();
+
+    for (const epc of epcs) {
+      try {
+        const value = await this.getProperty(endpoint, epc, timeoutMs);
+        values.set(epc, value);
+      } catch {
+        // Some devices reject selected properties or multi-property GETs; keep usable values.
       }
     }
 
