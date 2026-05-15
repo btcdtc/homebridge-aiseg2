@@ -41,13 +41,6 @@
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   }
 
-  .aiseg2-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-    justify-content: flex-end;
-  }
-
   .aiseg2-url-row {
     display: grid;
     gap: 0.5rem;
@@ -62,14 +55,6 @@
   @media (max-width: 575px) {
     .aiseg2-url-row {
       grid-template-columns: 1fr;
-    }
-
-    .aiseg2-actions {
-      justify-content: stretch;
-    }
-
-    .aiseg2-actions .btn {
-      flex: 1 1 auto;
     }
   }
 </style>
@@ -244,12 +229,7 @@
     </div>
   </section>
 
-  <section class="aiseg2-section">
-    <div class="aiseg2-actions">
-      <button class="btn btn-primary" id="saveConfig" type="button">Save</button>
-    </div>
-    <div class="aiseg2-muted mt-2" id="statusText"></div>
-  </section>
+  <div class="aiseg2-muted" id="statusText"></div>
 </div>
 
 <script>
@@ -507,21 +487,6 @@
     }
   }
 
-  async function saveConfig() {
-    $('saveConfig').disabled = true;
-    try {
-      await homebridge.updatePluginConfig([gatherConfig()]);
-      await homebridge.savePluginConfig();
-      setStatus('Saved');
-      homebridge.toast.success('AiSEG2 settings saved.');
-    } catch (error) {
-      setStatus(error.message || String(error), true);
-      homebridge.toast.error(error.message || String(error), 'Save failed');
-    } finally {
-      $('saveConfig').disabled = false;
-    }
-  }
-
   function setStatus(message, isError) {
     $('statusText').textContent = message || '';
     $('statusText').classList.toggle('text-danger', Boolean(isError));
@@ -557,7 +522,6 @@
     });
     $('copyUrl').addEventListener('click', copyUrl);
     $('refreshLocks').addEventListener('click', refreshDoorLocks);
-    $('saveConfig').addEventListener('click', saveConfig);
   }
 
   window.homebridge.addEventListener('ready', async () => {
