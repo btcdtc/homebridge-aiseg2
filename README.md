@@ -51,8 +51,7 @@ write the discovered address back to `config.json`, and a configured `host` alwa
             "preferDoorLocks": true,
             "preferAirPurifiers": true,
             "preferEcocutes": true,
-            "fallbackToAiseg": false,
-            "doorLockHosts": {}
+            "fallbackToAiseg": false
         },
         "energy": {
             "enabled": false,
@@ -72,7 +71,6 @@ write the discovered address back to `config.json`, and a configured `host` alwa
             "requireBatteryNotDischarging": true,
             "minBatteryChargeWatts": 0,
             "oncePerDay": true,
-            "cooldownHours": 18,
             "checkIntervalSeconds": 300,
             "weatherEnabled": false,
             "latitude": 0,
@@ -116,9 +114,10 @@ top-level discovery option is diagnostic; `echonet.enabled` below also runs disc
 
 Set `echonet.enabled` to `true` to prefer direct ECHONET Lite control for devices that can be matched automatically. AiSEG2 still
 provides the accessory names. Shutters, air purifiers, and EcoCute devices are matched by EOJ after ECHONET discovery; HF-JA1/HF-JA2
-door locks are matched automatically when exactly one endpoint is found. Use `echonet.doorLockHosts` only if multiple door lock
-endpoints exist. Startup and action logs show whether each accessory uses ECHONET Lite or AiSEG2. Set `echonet.fallbackToAiseg` to
-`true` only if you want shutters, door locks, and air purifiers to retry through AiSEG2 when direct ECHONET Lite fails.
+door locks are matched automatically when exactly one endpoint is found. Manual `echonet.doorLockHosts` overrides are only for rare
+ambiguous HF-JA installs and are intentionally hidden from the normal settings UI. Startup and action logs show whether each accessory
+uses ECHONET Lite or AiSEG2. Set `echonet.fallbackToAiseg` to `true` only if you want shutters, door locks, and air purifiers to retry
+through AiSEG2 when direct ECHONET Lite fails.
 
 Direct shutter position control is used only when the ECHONET endpoint advertises the standard degree-of-opening property (`0xe1`).
 Some shutters expose timed movement (`0xd2`/`0xe9`) instead; the plugin does not treat that as exact percentage feedback and keeps
@@ -138,7 +137,7 @@ Set `ecocuteSolarAutomation.enabled` to `true` to allow the plugin to start EcoC
 battery, weather, and time-window conditions are met. This automation only sends the manual water-heating ON command; it never sends
 OFF, so EcoCute completes or stops the heating cycle using its own controls. Keep `dryRun` enabled first to verify the log decisions
 before allowing active control. Weather gating uses Open-Meteo forecast data when `weatherEnabled` is true and `latitude`/`longitude`
-are configured.
+are configured. The custom settings UI can fill latitude and longitude from browser geolocation after permission is granted.
 
 Set `webhook.enabled` to `true` to start a token-protected HTTP endpoint for external triggers such as UniFi fingerprint events.
 The endpoint accepts `/api/webhook/<token>` on `webhook.port`; leave `webhook.token` empty to auto-generate and persist one. The

@@ -157,11 +157,6 @@
         <label class="form-check-label" for="fallbackToAiseg">Fallback to AiSEG2 when ECHONET fails</label>
       </div>
     </div>
-    <div class="mt-3">
-      <label class="form-label" for="doorLockHosts">Door lock host overrides</label>
-      <textarea class="form-control" id="doorLockHosts" rows="2" spellcheck="false" placeholder='{"玄関 電気錠":"192.168.20.137"}'></textarea>
-      <div class="form-text">Optional JSON map used only when multiple HF-JA door lock endpoints exist.</div>
-    </div>
   </section>
 
   <section class="aiseg2-section">
@@ -233,10 +228,6 @@
         <input class="form-control" id="minBatteryChargeWatts" type="number" inputmode="numeric" min="0" max="100000" step="100">
       </div>
       <div>
-        <label class="form-label" for="cooldownHours">Cooldown hours</label>
-        <input class="form-control" id="cooldownHours" type="number" inputmode="numeric" min="0" max="168" step="1">
-      </div>
-      <div>
         <label class="form-label" for="checkIntervalSeconds">Check interval seconds</label>
         <input class="form-control" id="checkIntervalSeconds" type="number" inputmode="numeric" min="60" max="3600" step="60">
       </div>
@@ -263,6 +254,9 @@
       <div>
         <label class="form-label" for="longitude">Longitude</label>
         <input class="form-control" id="longitude" type="number" min="-180" max="180" step="0.000001">
+      </div>
+      <div class="align-self-end">
+        <button class="btn btn-outline-secondary w-100" id="useBrowserLocation" type="button">Use browser location</button>
       </div>
       <div>
         <label class="form-label" for="forecastHours">Forecast hours</label>
@@ -394,7 +388,6 @@
       requireBatteryNotDischarging: true,
       minBatteryChargeWatts: 0,
       oncePerDay: true,
-      cooldownHours: 18,
       checkIntervalSeconds: 300,
       weatherEnabled: false,
       latitude: 0,
@@ -436,7 +429,6 @@
     { id: 'preferAirPurifiers', path: 'echonet.preferAirPurifiers', type: 'boolean' },
     { id: 'preferEcocutes', path: 'echonet.preferEcocutes', type: 'boolean' },
     { id: 'fallbackToAiseg', path: 'echonet.fallbackToAiseg', type: 'boolean' },
-    { id: 'doorLockHosts', path: 'echonet.doorLockHosts', type: 'jsonObject', fallback: {} },
     { id: 'energy-enabled', path: 'energy.enabled', type: 'boolean' },
     { id: 'exposeStatusSensors', path: 'energy.exposeStatusSensors', type: 'boolean' },
     { id: 'solarSurplusWatts', path: 'energy.solarSurplusWatts', type: 'integer', fallback: 2500, min: 0, max: 100000 },
@@ -466,7 +458,6 @@
       max: 100000,
     },
     { id: 'oncePerDay', path: 'ecocuteSolarAutomation.oncePerDay', type: 'boolean' },
-    { id: 'cooldownHours', path: 'ecocuteSolarAutomation.cooldownHours', type: 'integer', fallback: 18, min: 0, max: 168 },
     {
       id: 'checkIntervalSeconds',
       path: 'ecocuteSolarAutomation.checkIntervalSeconds',
@@ -595,6 +586,7 @@
     for (const field of CONFIG_FIELDS) {
       setPath(nextConfig, field.path, readFieldFromElement(field));
     }
+    delete nextConfig.ecocuteSolarAutomation.cooldownHours;
     config = nextConfig;
     return nextConfig;
   }
@@ -603,11 +595,6 @@
     const nextValue = field.normalize ? field.normalize(rawValue) : rawValue;
     if (field.type === 'boolean') {
       setChecked(field.id, nextValue);
-      return;
-    }
-
-    if (field.type === 'jsonObject') {
-      setValue(field.id, JSON.stringify(nextValue || field.fallback || {}, null, 2));
       return;
     }
 
@@ -626,9 +613,6 @@
       case 'number':
         nextValue = boundedNumber(value(field.id), field.fallback, field.min, field.max, false);
         break;
-      case 'jsonObject':
-        nextValue = jsonObjectValue(field.id, field.fallback || {});
-        break;
       default:
         nextValue = value(field.id) || field.emptyFallback || field.fallback || '';
         break;
@@ -645,20 +629,6 @@
 
     const bounded = Math.max(min, Math.min(max, parsed));
     return integer ? Math.trunc(bounded) : bounded;
-  }
-
-  function jsonObjectValue(id, fallback) {
-    const raw = value(id);
-    if (!raw) {
-      return fallback;
-    }
-
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
-    } catch {
-      return fallback;
-    }
   }
 
   function getPath(source, path) {
@@ -795,6 +765,34 @@
     }
   }
 
+  function useBrowserLocation() {
+    if (!navigator.geolocation) {
+      homebridge.toast.warning('This browser does not expose location permission.');
+      return;
+    }
+
+    $('useBrowserLocation').disabled = true;
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        setChecked('weatherEnabled', true);
+        setValue('latitude', position.coords.latitude.toFixed(6));
+        setValue('longitude', position.coords.longitude.toFixed(6));
+        scheduleConfigUpdate();
+        $('useBrowserLocation').disabled = false;
+        homebridge.toast.success('Weather location updated.');
+      },
+      error => {
+        $('useBrowserLocation').disabled = false;
+        homebridge.toast.error(error.message || 'Location permission was not granted.', 'Weather location');
+      },
+      {
+        enableHighAccuracy: false,
+        maximumAge: 3600000,
+        timeout: 10000,
+      },
+    );
+  }
+
   function setStatus(message, isError) {
     $('statusText').textContent = message || '';
     $('statusText').classList.toggle('text-danger', Boolean(isError));
@@ -829,6 +827,7 @@
       homebridge.toast.info('Token generated. Save settings to apply it.');
     });
     $('copyUrl').addEventListener('click', copyUrl);
+    $('useBrowserLocation').addEventListener('click', useBrowserLocation);
     $('refreshLocks').addEventListener('click', () => refreshDeviceSelect('doorLocks'));
     $('refreshEcocutes').addEventListener('click', () => refreshDeviceSelect('ecocutes'));
   }

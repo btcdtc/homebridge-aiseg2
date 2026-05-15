@@ -135,14 +135,6 @@ export class EcocuteSolarAutomation {
       return 'already started today';
     }
 
-    const cooldownHours = this.platform.ecocuteSolarAutomationNumber('cooldownHours', 18, 0, 168);
-    if (cooldownHours > 0 && this.state.lastStartedAt) {
-      const elapsedMs = now.getTime() - new Date(this.state.lastStartedAt).getTime();
-      if (elapsedMs >= 0 && elapsedMs < cooldownHours * 60 * 60 * 1000) {
-        return `cooldown active (${Math.ceil((cooldownHours * 60 * 60 * 1000 - elapsedMs) / 60000)}m remaining)`;
-      }
-    }
-
     return undefined;
   }
 

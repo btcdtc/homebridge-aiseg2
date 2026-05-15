@@ -118,10 +118,10 @@
             "description": "If enabled, matched shutters, door locks, and air purifiers retry through AiSEG2 when direct ECHONET Lite requests fail. EcoCute direct control requires ECHONET Lite."
           },
           "doorLockHosts": {
-            "title": "Door lock host overrides",
+            "title": "Advanced door lock host overrides",
             "type": "object",
             "default": {},
-            "description": "Optional map from AiSEG2 door lock display name to a HF-JA1/JA2 IP address when automatic matching is ambiguous."
+            "description": "Manual fallback map from AiSEG2 door lock display name to HF-JA1/JA2 IP address. Normal installs should leave this unset; automatic matching is used first."
           }
         }
       },
@@ -230,13 +230,6 @@
             "type": "boolean",
             "default": true
           },
-          "cooldownHours": {
-            "title": "Cooldown hours",
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 168,
-            "default": 18
-          },
           "checkIntervalSeconds": {
             "title": "Check interval seconds",
             "type": "integer",
@@ -255,14 +248,16 @@
             "type": "number",
             "minimum": -90,
             "maximum": 90,
-            "default": 0
+            "default": 0,
+            "description": "Use the custom settings UI location button to fill this from browser geolocation."
           },
           "longitude": {
             "title": "Longitude",
             "type": "number",
             "minimum": -180,
             "maximum": 180,
-            "default": 0
+            "default": 0,
+            "description": "Use the custom settings UI location button to fill this from browser geolocation."
           },
           "forecastHours": {
             "title": "Forecast hours",
