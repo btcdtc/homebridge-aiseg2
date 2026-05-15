@@ -125,6 +125,175 @@
           }
         }
       },
+      "energy": {
+        "title": "Energy status",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "title": "Enable energy status",
+            "type": "boolean",
+            "default": false,
+            "description": "Reads ECHONET Lite solar and storage battery data. Apple Home receives derived status sensors, not raw W/kWh values."
+          },
+          "exposeStatusSensors": {
+            "title": "Expose Apple Home status sensors",
+            "type": "boolean",
+            "default": true,
+            "description": "Adds contact-sensor style status services for Solar Surplus, Battery Ready, Battery Discharging, and EcoCute Good Time."
+          },
+          "solarSurplusWatts": {
+            "title": "Solar surplus threshold watts",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000,
+            "default": 2500
+          },
+          "batteryReadyPercent": {
+            "title": "Battery ready percent",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 80
+          },
+          "batteryDischargeThresholdWatts": {
+            "title": "Battery discharge threshold watts",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000,
+            "default": 100
+          }
+        }
+      },
+      "ecocuteSolarAutomation": {
+        "title": "EcoCute solar automation",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "title": "Enable EcoCute solar automation",
+            "type": "boolean",
+            "default": false,
+            "description": "Automatically starts manual EcoCute water heating when solar, battery, weather, and time-window conditions are met. It never sends stop."
+          },
+          "dryRun": {
+            "title": "Dry run",
+            "type": "boolean",
+            "default": true,
+            "description": "Logs when EcoCute would be started without sending the command."
+          },
+          "ecocuteName": {
+            "title": "EcoCute name",
+            "type": "string",
+            "default": "",
+            "description": "Optional AiSEG2 EcoCute display name. Leave empty only when exactly one EcoCute exists."
+          },
+          "allowedStartTime": {
+            "title": "Allowed start time",
+            "type": "string",
+            "default": "09:30",
+            "description": "Local HH:mm time when automation may start."
+          },
+          "allowedEndTime": {
+            "title": "Allowed end time",
+            "type": "string",
+            "default": "14:30",
+            "description": "Local HH:mm time after which automation will not start."
+          },
+          "minSolarWatts": {
+            "title": "Minimum solar watts",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000,
+            "default": 2500
+          },
+          "minBatteryPercent": {
+            "title": "Minimum battery percent",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 80
+          },
+          "requireBatteryNotDischarging": {
+            "title": "Require battery not discharging",
+            "type": "boolean",
+            "default": true
+          },
+          "minBatteryChargeWatts": {
+            "title": "Minimum battery charge watts",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000,
+            "default": 0,
+            "description": "Optional stricter gate. Keep 0 to allow standby/low charging when other conditions are good."
+          },
+          "oncePerDay": {
+            "title": "Start at most once per day",
+            "type": "boolean",
+            "default": true
+          },
+          "cooldownHours": {
+            "title": "Cooldown hours",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 168,
+            "default": 18
+          },
+          "checkIntervalSeconds": {
+            "title": "Check interval seconds",
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 3600,
+            "default": 300
+          },
+          "weatherEnabled": {
+            "title": "Use weather forecast",
+            "type": "boolean",
+            "default": false,
+            "description": "Adds an Open-Meteo forecast gate using shortwave radiation, cloud cover, and precipitation probability."
+          },
+          "latitude": {
+            "title": "Latitude",
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "default": 0
+          },
+          "longitude": {
+            "title": "Longitude",
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "default": 0
+          },
+          "forecastHours": {
+            "title": "Forecast hours",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12,
+            "default": 3
+          },
+          "minForecastRadiationWatts": {
+            "title": "Minimum forecast radiation W/m2",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1200,
+            "default": 350
+          },
+          "maxForecastCloudCover": {
+            "title": "Maximum forecast cloud cover percent",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 85
+          },
+          "maxForecastPrecipitationProbability": {
+            "title": "Maximum forecast precipitation probability percent",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100,
+            "default": 70
+          }
+        }
+      },
       "webhook": {
         "title": "Webhook lock trigger",
         "type": "object",

@@ -17,6 +17,7 @@ This plugin supports the following AiSEG2 devices:
 * AiSEG2 shutters as HomeKit Window Covering accessories
 * AiSEG2 air purifiers as HomeKit Air Purifier accessories with separate AirMe/Eco mode switches and odor, PM2.5, and house dust Air Quality Sensor services
 * AiSEG2 EcoCute heat pump water systems as HomeKit Switch and Temperature Sensor services when matched to ECHONET Lite
+* AiSEG2 solar/storage battery status as Apple Home-compatible status sensors, with optional EcoCute solar automation
 * AiSEG2 air environment sensors as HomeKit Temperature Sensor and Humidity Sensor services
 * AiSEG2 electric door locks as HomeKit Lock Mechanism accessories
 * AiSEG2 open/close and window lock sensors as HomeKit Contact Sensor accessories, optionally with read-only lock-state Contact Sensor services
@@ -52,6 +53,34 @@ write the discovered address back to `config.json`, and a configured `host` alwa
             "preferEcocutes": true,
             "fallbackToAiseg": false,
             "doorLockHosts": {}
+        },
+        "energy": {
+            "enabled": false,
+            "exposeStatusSensors": true,
+            "solarSurplusWatts": 2500,
+            "batteryReadyPercent": 80,
+            "batteryDischargeThresholdWatts": 100
+        },
+        "ecocuteSolarAutomation": {
+            "enabled": false,
+            "dryRun": true,
+            "ecocuteName": "",
+            "allowedStartTime": "09:30",
+            "allowedEndTime": "14:30",
+            "minSolarWatts": 2500,
+            "minBatteryPercent": 80,
+            "requireBatteryNotDischarging": true,
+            "minBatteryChargeWatts": 0,
+            "oncePerDay": true,
+            "cooldownHours": 18,
+            "checkIntervalSeconds": 300,
+            "weatherEnabled": false,
+            "latitude": 0,
+            "longitude": 0,
+            "forecastHours": 3,
+            "minForecastRadiationWatts": 350,
+            "maxForecastCloudCover": 85,
+            "maxForecastPrecipitationProbability": 70
         },
         "webhook": {
             "enabled": false,
@@ -99,6 +128,17 @@ EcoCute support uses AiSEG2 only to discover the named water heater and ECHONET 
 HomeKit switch turns on while manual water heating is active; turning it off sends the water-heating stop command. The automatic bath
 switch controls and reflects `ふろ自動`, which keeps the bath filled/warm until stopped. Automatic tank heating settings are not
 exposed in HomeKit.
+
+Set `energy.enabled` to `true` to read ECHONET Lite household solar generation (`0x0279`) and storage battery (`0x027d`) data.
+Apple Home does not expose raw W/kWh power meters through Homebridge, so the plugin publishes derived Contact Sensor-style services:
+Solar Surplus, Battery Ready, Battery Discharging, and EcoCute Good Time. These are intended for Apple Home visibility and
+automations; raw values are logged at debug level.
+
+Set `ecocuteSolarAutomation.enabled` to `true` to allow the plugin to start EcoCute manual water heating when the configured solar,
+battery, weather, and time-window conditions are met. This automation only sends the manual water-heating ON command; it never sends
+OFF, so EcoCute completes or stops the heating cycle using its own controls. Keep `dryRun` enabled first to verify the log decisions
+before allowing active control. Weather gating uses Open-Meteo forecast data when `weatherEnabled` is true and `latitude`/`longitude`
+are configured.
 
 Set `webhook.enabled` to `true` to start a token-protected HTTP endpoint for external triggers such as UniFi fingerprint events.
 The endpoint accepts `/api/webhook/<token>` on `webhook.port`; leave `webhook.token` empty to auto-generate and persist one. The

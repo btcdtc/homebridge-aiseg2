@@ -137,6 +137,26 @@ export interface EcocuteStatus {
   endpoint?: string;
 }
 
+export interface EnergyStatus {
+  solarEndpoint?: string;
+  solarOperationState?: string;
+  solarGenerationWatts?: number;
+  solarRatedPowerWatts?: number;
+  solarCumulativeGeneratedKwh?: number;
+  solarCumulativeSoldKwh?: number;
+  batteryEndpoint?: string;
+  batteryOperationState?: string;
+  batteryWorkingStatus?: string;
+  batteryOperationMode?: string;
+  batteryPercent?: number;
+  batteryPowerWatts?: number;
+  batteryCharging?: boolean;
+  batteryDischarging?: boolean;
+  batteryStandby?: boolean;
+  batteryCumulativeChargingKwh?: number;
+  batteryCumulativeDischargingKwh?: number;
+}
+
 export interface DoorLockStatus {
   lockVal: string;
   statecmd: string;
@@ -462,6 +482,14 @@ export class Aiseg2Client {
     }
 
     return this.findEchonetEndpoint(['0x026b'], normalizeEoj(device.eoj));
+  }
+
+  echonetEndpointForHomeSolar(): EchonetLiteEndpoint | undefined {
+    return this.findEchonetEndpoint(['0x0279']);
+  }
+
+  echonetEndpointForStorageBattery(): EchonetLiteEndpoint | undefined {
+    return this.findEchonetEndpoint(['0x027d']);
   }
 
   ecocuteCanSet(device: EcocuteDevice, epc: number): boolean {
@@ -937,6 +965,22 @@ export class Aiseg2Client {
     return this.getEchonetEcocuteStatus(endpoint);
   }
 
+  async getEnergyStatus(): Promise<EnergyStatus> {
+    const [solarStatus, batteryStatus] = await Promise.all([
+      this.getEchonetSolarEnergyStatus(),
+      this.getEchonetBatteryEnergyStatus(),
+    ]);
+
+    if (!solarStatus.solarEndpoint && !batteryStatus.batteryEndpoint) {
+      throw new Error('No matching ECHONET Lite solar or storage battery endpoint was discovered');
+    }
+
+    return {
+      ...solarStatus,
+      ...batteryStatus,
+    };
+  }
+
   async getAirEnvironmentStatus(device: AirEnvironmentSensorDevice, force = false): Promise<AirEnvironmentStatus> {
     const statuses = await this.getAirEnvironmentStatuses(force);
     return statuses.get(this.airEnvironmentDeviceKey(device)) || {};
@@ -1059,6 +1103,63 @@ export class Aiseg2Client {
       bathWaterVolume: this.unsignedNumber(values.get(0xee)),
       transport: 'ECHONET Lite',
       endpoint: formatEndpoint(endpoint),
+    };
+  }
+
+  private async getEchonetSolarEnergyStatus(): Promise<EnergyStatus> {
+    const endpoint = this.echonetEndpointForHomeSolar();
+    if (!endpoint) {
+      return {};
+    }
+
+    const values = await this.echonetClient.getProperties(endpoint, this.supportedGetEpcs(endpoint, [
+      0x80, // Operation status
+      0xe0, // Measured instantaneous amount of electricity generated, W
+      0xe1, // Measured cumulative amount of electric energy generated, 0.001 kWh
+      0xe3, // Measured cumulative amount of electric energy sold, 0.001 kWh
+      0xe8, // Rated power generation output, W
+    ]));
+
+    return {
+      solarEndpoint: formatEndpoint(endpoint),
+      solarOperationState: this.hexByte(values.get(0x80)),
+      solarGenerationWatts: this.unsignedNumber(values.get(0xe0)),
+      solarRatedPowerWatts: this.unsignedNumber(values.get(0xe8)),
+      solarCumulativeGeneratedKwh: this.milliKwh(values.get(0xe1)),
+      solarCumulativeSoldKwh: this.milliKwh(values.get(0xe3)),
+    };
+  }
+
+  private async getEchonetBatteryEnergyStatus(): Promise<EnergyStatus> {
+    const endpoint = this.echonetEndpointForStorageBattery();
+    if (!endpoint) {
+      return {};
+    }
+
+    const values = await this.echonetClient.getProperties(endpoint, this.supportedGetEpcs(endpoint, [
+      0x80, // Operation status
+      0xcf, // Working operation status
+      0xd3, // Measured instantaneous charging/discharging electric power, signed W
+      0xd6, // Measured cumulative discharging electric energy, 0.001 kWh
+      0xd8, // Measured cumulative charging electric energy, 0.001 kWh
+      0xda, // Operation mode setting
+      0xe4, // Remaining stored electricity 3, %
+    ]));
+    const workingStatus = this.hexByte(values.get(0xcf));
+    const batteryPowerWatts = this.signedNumber(values.get(0xd3));
+
+    return {
+      batteryEndpoint: formatEndpoint(endpoint),
+      batteryOperationState: this.hexByte(values.get(0x80)),
+      batteryWorkingStatus: workingStatus,
+      batteryOperationMode: this.hexByte(values.get(0xda)),
+      batteryPercent: this.unsignedNumber(values.get(0xe4)),
+      batteryPowerWatts,
+      batteryCharging: workingStatus === '0x42' || (batteryPowerWatts !== undefined && batteryPowerWatts > 0),
+      batteryDischarging: workingStatus === '0x43' || (batteryPowerWatts !== undefined && batteryPowerWatts < 0),
+      batteryStandby: workingStatus === '0x44' || batteryPowerWatts === 0,
+      batteryCumulativeChargingKwh: this.milliKwh(values.get(0xd8)),
+      batteryCumulativeDischargingKwh: this.milliKwh(values.get(0xd6)),
     };
   }
 
@@ -2586,6 +2687,33 @@ export class Aiseg2Client {
     }
 
     return [...value].reduce((number, byte) => (number * 256) + byte, 0);
+  }
+
+  private signedNumber(value: Buffer | undefined): number | undefined {
+    if (!value || value.length === 0) {
+      return undefined;
+    }
+
+    const unsigned = [...value].reduce((number, byte) => (number * 256) + byte, 0);
+    const bits = value.length * 8;
+    const overflow = (2 ** (bits - 1)) - 1;
+    const underflow = 2 ** (bits - 1);
+    if (unsigned === overflow || unsigned === underflow) {
+      return undefined;
+    }
+
+    const signBoundary = 2 ** (bits - 1);
+    return unsigned >= signBoundary ? unsigned - (2 ** bits) : unsigned;
+  }
+
+  private milliKwh(value: Buffer | undefined): number | undefined {
+    const raw = this.unsignedNumber(value);
+    return raw === undefined ? undefined : raw / 1000;
+  }
+
+  private supportedGetEpcs(endpoint: EchonetLiteEndpoint, epcs: number[]): number[] {
+    const supported = epcs.filter(epc => this.echonetObjectHasProperty(endpoint, 'getProperties', epc));
+    return supported.length > 0 ? supported : epcs;
   }
 
   private echonetObjectHasProperty(

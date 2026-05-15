@@ -166,6 +166,122 @@
 
   <section class="aiseg2-section">
     <div class="aiseg2-heading">
+      <h2>Energy status</h2>
+    </div>
+    <div class="aiseg2-grid">
+      <div class="form-check align-self-end mb-2">
+        <input class="form-check-input" id="energy-enabled" type="checkbox">
+        <label class="form-check-label" for="energy-enabled">Enable energy status</label>
+      </div>
+      <div class="form-check align-self-end mb-2">
+        <input class="form-check-input" id="exposeStatusSensors" type="checkbox">
+        <label class="form-check-label" for="exposeStatusSensors">Expose Apple Home status sensors</label>
+      </div>
+      <div>
+        <label class="form-label" for="solarSurplusWatts">Solar surplus watts</label>
+        <input class="form-control" id="solarSurplusWatts" type="number" inputmode="numeric" min="0" max="100000" step="100">
+      </div>
+      <div>
+        <label class="form-label" for="batteryReadyPercent">Battery ready percent</label>
+        <input class="form-control" id="batteryReadyPercent" type="number" inputmode="numeric" min="0" max="100" step="1">
+      </div>
+      <div>
+        <label class="form-label" for="batteryDischargeThresholdWatts">Battery discharge threshold watts</label>
+        <input class="form-control" id="batteryDischargeThresholdWatts" type="number" inputmode="numeric" min="0" max="100000" step="100">
+      </div>
+    </div>
+  </section>
+
+  <section class="aiseg2-section">
+    <div class="aiseg2-heading">
+      <h2>EcoCute solar automation</h2>
+    </div>
+    <div class="aiseg2-grid">
+      <div class="form-check align-self-end mb-2">
+        <input class="form-check-input" id="ecocute-auto-enabled" type="checkbox">
+        <label class="form-check-label" for="ecocute-auto-enabled">Enable automation</label>
+      </div>
+      <div class="form-check align-self-end mb-2">
+        <input class="form-check-input" id="ecocute-auto-dryRun" type="checkbox">
+        <label class="form-check-label" for="ecocute-auto-dryRun">Dry run</label>
+      </div>
+      <div>
+        <label class="form-label" for="ecocuteName">EcoCute name</label>
+        <input class="form-control" id="ecocuteName" type="text" autocomplete="off">
+      </div>
+      <div>
+        <label class="form-label" for="allowedStartTime">Allowed start</label>
+        <input class="form-control" id="allowedStartTime" type="time" step="60">
+      </div>
+      <div>
+        <label class="form-label" for="allowedEndTime">Allowed end</label>
+        <input class="form-control" id="allowedEndTime" type="time" step="60">
+      </div>
+      <div>
+        <label class="form-label" for="minSolarWatts">Minimum solar watts</label>
+        <input class="form-control" id="minSolarWatts" type="number" inputmode="numeric" min="0" max="100000" step="100">
+      </div>
+      <div>
+        <label class="form-label" for="minBatteryPercent">Minimum battery percent</label>
+        <input class="form-control" id="minBatteryPercent" type="number" inputmode="numeric" min="0" max="100" step="1">
+      </div>
+      <div>
+        <label class="form-label" for="minBatteryChargeWatts">Minimum battery charge watts</label>
+        <input class="form-control" id="minBatteryChargeWatts" type="number" inputmode="numeric" min="0" max="100000" step="100">
+      </div>
+      <div>
+        <label class="form-label" for="cooldownHours">Cooldown hours</label>
+        <input class="form-control" id="cooldownHours" type="number" inputmode="numeric" min="0" max="168" step="1">
+      </div>
+      <div>
+        <label class="form-label" for="checkIntervalSeconds">Check interval seconds</label>
+        <input class="form-control" id="checkIntervalSeconds" type="number" inputmode="numeric" min="60" max="3600" step="60">
+      </div>
+    </div>
+    <div class="aiseg2-checks mt-3">
+      <div class="form-check">
+        <input class="form-check-input" id="requireBatteryNotDischarging" type="checkbox">
+        <label class="form-check-label" for="requireBatteryNotDischarging">Require battery not discharging</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" id="oncePerDay" type="checkbox">
+        <label class="form-check-label" for="oncePerDay">Start at most once per day</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" id="weatherEnabled" type="checkbox">
+        <label class="form-check-label" for="weatherEnabled">Use weather forecast</label>
+      </div>
+    </div>
+    <div class="aiseg2-grid mt-3">
+      <div>
+        <label class="form-label" for="latitude">Latitude</label>
+        <input class="form-control" id="latitude" type="number" min="-90" max="90" step="0.000001">
+      </div>
+      <div>
+        <label class="form-label" for="longitude">Longitude</label>
+        <input class="form-control" id="longitude" type="number" min="-180" max="180" step="0.000001">
+      </div>
+      <div>
+        <label class="form-label" for="forecastHours">Forecast hours</label>
+        <input class="form-control" id="forecastHours" type="number" inputmode="numeric" min="1" max="12" step="1">
+      </div>
+      <div>
+        <label class="form-label" for="minForecastRadiationWatts">Minimum forecast W/m2</label>
+        <input class="form-control" id="minForecastRadiationWatts" type="number" inputmode="numeric" min="0" max="1200" step="50">
+      </div>
+      <div>
+        <label class="form-label" for="maxForecastCloudCover">Maximum cloud percent</label>
+        <input class="form-control" id="maxForecastCloudCover" type="number" inputmode="numeric" min="0" max="100" step="1">
+      </div>
+      <div>
+        <label class="form-label" for="maxForecastPrecipitationProbability">Maximum precipitation percent</label>
+        <input class="form-control" id="maxForecastPrecipitationProbability" type="number" inputmode="numeric" min="0" max="100" step="1">
+      </div>
+    </div>
+  </section>
+
+  <section class="aiseg2-section">
+    <div class="aiseg2-heading">
       <h2>Webhook lock trigger</h2>
       <button class="btn btn-outline-secondary btn-sm" id="refreshLocks" type="button">Refresh locks</button>
     </div>
@@ -257,6 +373,34 @@
       fallbackToAiseg: false,
       doorLockHosts: {},
     },
+    energy: {
+      enabled: false,
+      exposeStatusSensors: true,
+      solarSurplusWatts: 2500,
+      batteryReadyPercent: 80,
+      batteryDischargeThresholdWatts: 100,
+    },
+    ecocuteSolarAutomation: {
+      enabled: false,
+      dryRun: true,
+      ecocuteName: '',
+      allowedStartTime: '09:30',
+      allowedEndTime: '14:30',
+      minSolarWatts: 2500,
+      minBatteryPercent: 80,
+      requireBatteryNotDischarging: true,
+      minBatteryChargeWatts: 0,
+      oncePerDay: true,
+      cooldownHours: 18,
+      checkIntervalSeconds: 300,
+      weatherEnabled: false,
+      latitude: 0,
+      longitude: 0,
+      forecastHours: 3,
+      minForecastRadiationWatts: 350,
+      maxForecastCloudCover: 85,
+      maxForecastPrecipitationProbability: 70,
+    },
     webhook: {
       enabled: false,
       port: 18582,
@@ -284,6 +428,11 @@
   function mergeDefaults(base, value) {
     const output = { ...base, ...(value || {}) };
     output.echonet = { ...base.echonet, ...((value && value.echonet) || {}) };
+    output.energy = { ...base.energy, ...((value && value.energy) || {}) };
+    output.ecocuteSolarAutomation = {
+      ...base.ecocuteSolarAutomation,
+      ...((value && value.ecocuteSolarAutomation) || {}),
+    };
     output.webhook = { ...base.webhook, ...((value && value.webhook) || {}) };
     return output;
   }
@@ -311,6 +460,15 @@
     }
 
     return Math.max(min, Math.min(max, Math.trunc(parsed)));
+  }
+
+  function floatValue(id, fallback, min, max) {
+    const parsed = Number(value(id));
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+
+    return Math.max(min, Math.min(max, parsed));
   }
 
   function normalizeMethod(method) {
@@ -355,6 +513,30 @@
     setChecked('preferEcocutes', config.echonet.preferEcocutes);
     setChecked('fallbackToAiseg', config.echonet.fallbackToAiseg);
     setValue('doorLockHosts', JSON.stringify(config.echonet.doorLockHosts || {}, null, 2));
+    setChecked('energy-enabled', config.energy.enabled);
+    setChecked('exposeStatusSensors', config.energy.exposeStatusSensors);
+    setValue('solarSurplusWatts', config.energy.solarSurplusWatts);
+    setValue('batteryReadyPercent', config.energy.batteryReadyPercent);
+    setValue('batteryDischargeThresholdWatts', config.energy.batteryDischargeThresholdWatts);
+    setChecked('ecocute-auto-enabled', config.ecocuteSolarAutomation.enabled);
+    setChecked('ecocute-auto-dryRun', config.ecocuteSolarAutomation.dryRun);
+    setValue('ecocuteName', config.ecocuteSolarAutomation.ecocuteName);
+    setValue('allowedStartTime', config.ecocuteSolarAutomation.allowedStartTime);
+    setValue('allowedEndTime', config.ecocuteSolarAutomation.allowedEndTime);
+    setValue('minSolarWatts', config.ecocuteSolarAutomation.minSolarWatts);
+    setValue('minBatteryPercent', config.ecocuteSolarAutomation.minBatteryPercent);
+    setChecked('requireBatteryNotDischarging', config.ecocuteSolarAutomation.requireBatteryNotDischarging);
+    setValue('minBatteryChargeWatts', config.ecocuteSolarAutomation.minBatteryChargeWatts);
+    setChecked('oncePerDay', config.ecocuteSolarAutomation.oncePerDay);
+    setValue('cooldownHours', config.ecocuteSolarAutomation.cooldownHours);
+    setValue('checkIntervalSeconds', config.ecocuteSolarAutomation.checkIntervalSeconds);
+    setChecked('weatherEnabled', config.ecocuteSolarAutomation.weatherEnabled);
+    setValue('latitude', config.ecocuteSolarAutomation.latitude);
+    setValue('longitude', config.ecocuteSolarAutomation.longitude);
+    setValue('forecastHours', config.ecocuteSolarAutomation.forecastHours);
+    setValue('minForecastRadiationWatts', config.ecocuteSolarAutomation.minForecastRadiationWatts);
+    setValue('maxForecastCloudCover', config.ecocuteSolarAutomation.maxForecastCloudCover);
+    setValue('maxForecastPrecipitationProbability', config.ecocuteSolarAutomation.maxForecastPrecipitationProbability);
     setChecked('webhook-enabled', config.webhook.enabled);
     setValue('webhook-method', normalizeMethod(config.webhook.method));
     setValue('webhook-action', normalizeAction(config.webhook.action));
@@ -389,6 +571,32 @@
     nextConfig.echonet.preferEcocutes = checked('preferEcocutes');
     nextConfig.echonet.fallbackToAiseg = checked('fallbackToAiseg');
     nextConfig.echonet.doorLockHosts = parseDoorLockHosts();
+    nextConfig.energy.enabled = checked('energy-enabled');
+    nextConfig.energy.exposeStatusSensors = checked('exposeStatusSensors');
+    nextConfig.energy.solarSurplusWatts = numberValue('solarSurplusWatts', 2500, 0, 100000);
+    nextConfig.energy.batteryReadyPercent = numberValue('batteryReadyPercent', 80, 0, 100);
+    nextConfig.energy.batteryDischargeThresholdWatts = numberValue('batteryDischargeThresholdWatts', 100, 0, 100000);
+    nextConfig.ecocuteSolarAutomation.enabled = checked('ecocute-auto-enabled');
+    nextConfig.ecocuteSolarAutomation.dryRun = checked('ecocute-auto-dryRun');
+    nextConfig.ecocuteSolarAutomation.ecocuteName = value('ecocuteName');
+    nextConfig.ecocuteSolarAutomation.allowedStartTime = value('allowedStartTime') || '09:30';
+    nextConfig.ecocuteSolarAutomation.allowedEndTime = value('allowedEndTime') || '14:30';
+    nextConfig.ecocuteSolarAutomation.minSolarWatts = numberValue('minSolarWatts', 2500, 0, 100000);
+    nextConfig.ecocuteSolarAutomation.minBatteryPercent = numberValue('minBatteryPercent', 80, 0, 100);
+    nextConfig.ecocuteSolarAutomation.requireBatteryNotDischarging = checked('requireBatteryNotDischarging');
+    nextConfig.ecocuteSolarAutomation.minBatteryChargeWatts = numberValue('minBatteryChargeWatts', 0, 0, 100000);
+    nextConfig.ecocuteSolarAutomation.oncePerDay = checked('oncePerDay');
+    nextConfig.ecocuteSolarAutomation.cooldownHours = numberValue('cooldownHours', 18, 0, 168);
+    nextConfig.ecocuteSolarAutomation.checkIntervalSeconds = numberValue('checkIntervalSeconds', 300, 60, 3600);
+    nextConfig.ecocuteSolarAutomation.weatherEnabled = checked('weatherEnabled');
+    nextConfig.ecocuteSolarAutomation.latitude = floatValue('latitude', 0, -90, 90);
+    nextConfig.ecocuteSolarAutomation.longitude = floatValue('longitude', 0, -180, 180);
+    nextConfig.ecocuteSolarAutomation.forecastHours = numberValue('forecastHours', 3, 1, 12);
+    nextConfig.ecocuteSolarAutomation.minForecastRadiationWatts =
+      numberValue('minForecastRadiationWatts', 350, 0, 1200);
+    nextConfig.ecocuteSolarAutomation.maxForecastCloudCover = numberValue('maxForecastCloudCover', 85, 0, 100);
+    nextConfig.ecocuteSolarAutomation.maxForecastPrecipitationProbability =
+      numberValue('maxForecastPrecipitationProbability', 70, 0, 100);
     nextConfig.webhook.enabled = checked('webhook-enabled');
     nextConfig.webhook.method = normalizeMethod(value('webhook-method'));
     nextConfig.webhook.action = normalizeAction(value('webhook-action'));

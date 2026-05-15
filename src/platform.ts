@@ -20,11 +20,13 @@ import { AirPurifierAccessory } from './airPurifierAccessory';
 import { ContactSensorAccessory } from './contactSensorAccessory';
 import { DoorLockAccessory } from './doorLockAccessory';
 import { EcocuteAccessory } from './ecocuteAccessory';
+import { EcocuteSolarAutomation } from './ecocuteSolarAutomation';
+import { EnergyAccessory } from './energyAccessory';
 import { LightingAccessory } from './lightingAccessory';
 import { ShutterAccessory } from './shutterAccessory';
 import { SmokeSensorAccessory } from './smokeSensorAccessory';
 import { Aiseg2Client } from './aiseg2Client';
-import { LightingDevice, SupportedDevice, SupportedDeviceKind } from './devices';
+import { EnergyDevice, LightingDevice, SupportedDevice, SupportedDeviceKind } from './devices';
 import { Aiseg2WebhookServer } from './webhookServer';
 
 
@@ -36,6 +38,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   public readonly accessories: PlatformAccessory[] = [];
   private readonly intervalHandles = new Set<ReturnType<typeof setInterval>>();
   private webhookServer?: Aiseg2WebhookServer;
+  private ecocuteSolarAutomation?: EcocuteSolarAutomation;
   private discoveredAccessoryUUIDs = new Set<string>();
 
   constructor(
@@ -71,6 +74,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     this.startWebhookServer();
     await this.discoverEchonetLiteDevices();
     this.discoveredAccessoryUUIDs = new Set<string>();
+    await this.discoverEnergy();
     await this.discoverLighting();
     await this.discoverContactSensors();
     await this.discoverSmokeSensors();
@@ -81,6 +85,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     await this.discoverEcocutes();
     await this.discoverDoorLocks();
     this.unregisterStaleAccessories();
+    this.startEcocuteSolarAutomation();
   }
 
   provisionDevice(device: SupportedDevice) {
@@ -259,6 +264,36 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     }
   }
 
+  async discoverEnergy(): Promise<void> {
+    if (!this.energyBoolean('enabled', false) || !this.energyBoolean('exposeStatusSensors', true)) {
+      return;
+    }
+
+    const solarEndpoint = this.client.echonetEndpointForHomeSolar();
+    const batteryEndpoint = this.client.echonetEndpointForStorageBattery();
+    if (!solarEndpoint && !batteryEndpoint) {
+      this.log.info('Skipping AiSEG2 energy status accessory: no ECHONET Lite solar or storage battery endpoint found');
+      return;
+    }
+
+    const device: EnergyDevice = {
+      kind: 'energy',
+      displayName: 'AiSEG2 Energy',
+      nodeId: 'energy',
+      eoj: 'energy',
+      type: 'energy',
+      uuidSeed: 'aiseg2:energy',
+    };
+    this.log.info('Discovered AiSEG2 energy status accessory');
+    if (solarEndpoint) {
+      this.log.info(`ECHONET mapped home solar power generation -> ${solarEndpoint.host}/${solarEndpoint.eoj}`);
+    }
+    if (batteryEndpoint) {
+      this.log.info(`ECHONET mapped storage battery -> ${batteryEndpoint.host}/${batteryEndpoint.eoj}`);
+    }
+    this.provisionDevice(device);
+  }
+
   async discoverAirEnvironmentSensors(): Promise<void> {
     this.log.debug('Fetching air environment sensors from AiSEG2');
     const devices = await this.client.getAirEnvironmentSensorDevices();
@@ -316,6 +351,9 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       case 'ecocute':
         new EcocuteAccessory(this, accessory);
         break;
+      case 'energy':
+        new EnergyAccessory(this, accessory);
+        break;
       case 'doorLock':
         new DoorLockAccessory(this, accessory);
         break;
@@ -341,6 +379,8 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
         return this.api.hap.Categories.AIR_PURIFIER;
       case 'ecocute':
         return this.api.hap.Categories.SWITCH;
+      case 'energy':
+        return this.api.hap.Categories.SENSOR;
       case 'doorLock':
         return this.api.hap.Categories.DOOR_LOCK;
       default:
@@ -383,6 +423,18 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     return this.configBoolean('exposeContactSensorLockState', false);
   }
 
+  public get energyEnabled(): boolean {
+    return this.energyBoolean('enabled', false);
+  }
+
+  public get ecocuteSolarAutomationEnabled(): boolean {
+    return this.ecocuteSolarAutomationBoolean('enabled', false);
+  }
+
+  public get ecocuteSolarAutomationDryRun(): boolean {
+    return this.ecocuteSolarAutomationBoolean('dryRun', true);
+  }
+
   public get echonetDiscovery(): boolean {
     return this.configBoolean('echonetDiscovery', false);
   }
@@ -416,6 +468,11 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     return handle;
   }
 
+  public unregisterInterval(handle: ReturnType<typeof setInterval>): void {
+    clearInterval(handle);
+    this.intervalHandles.delete(handle);
+  }
+
   public invalidValueError(): Error {
     return new this.api.hap.HapStatusError(this.api.hap.HAPStatus.INVALID_VALUE_IN_REQUEST);
   }
@@ -434,6 +491,42 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
 
   public safeJson(value: unknown): string {
     return JSON.stringify(value, (key, entry) => key.toLowerCase().includes('token') ? '[redacted]' : entry);
+  }
+
+  public energyNumber(key: string, defaultValue: number, min: number, max: number): number {
+    return this.numberFrom(this.energyConfig[key], defaultValue, min, max);
+  }
+
+  public ecocuteSolarAutomationNumber(key: string, defaultValue: number, min: number, max: number): number {
+    return this.numberFrom(this.ecocuteSolarAutomationConfig[key], defaultValue, min, max);
+  }
+
+  public ecocuteSolarAutomationFloat(key: string, defaultValue: number, min: number, max: number): number {
+    return this.numberFrom(this.ecocuteSolarAutomationConfig[key], defaultValue, min, max, false);
+  }
+
+  public ecocuteSolarAutomationBoolean(key: string, defaultValue: boolean): boolean {
+    const value = this.ecocuteSolarAutomationConfig[key];
+    return typeof value === 'boolean' ? value : defaultValue;
+  }
+
+  public ecocuteSolarAutomationString(key: string, defaultValue: string): string {
+    const value = this.ecocuteSolarAutomationConfig[key];
+    return value === undefined || value === null ? defaultValue : String(value).trim();
+  }
+
+  public ecocuteSolarAutomationWindowOpen(now: Date): boolean {
+    const start = this.parseMinutes(this.ecocuteSolarAutomationString('allowedStartTime', '09:30'));
+    const end = this.parseMinutes(this.ecocuteSolarAutomationString('allowedEndTime', '14:30'));
+    const current = (now.getHours() * 60) + now.getMinutes();
+
+    if (start === end) {
+      return true;
+    }
+
+    return start < end
+      ? current >= start && current <= end
+      : current >= start || current <= end;
   }
 
   private configBoolean(key: string, defaultValue: boolean): boolean {
@@ -464,7 +557,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   }
 
   private async discoverEchonetLiteDevices(): Promise<void> {
-    if (!this.echonetDiscovery && !this.echonetEnabled) {
+    if (!this.needsEchonetLiteDiscovery) {
       return;
     }
 
@@ -476,6 +569,9 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     this.log.info(`Discovering ECHONET Lite devices on ${targetDescription}`);
     if (this.echonetEnabled) {
       this.log.info('ECHONET Lite direct control enabled for matched shutters, door locks, air purifiers, and EcoCute devices');
+    }
+    if (this.energyEnabled || this.ecocuteSolarAutomationEnabled) {
+      this.log.info('ECHONET Lite energy discovery enabled for solar, storage battery, and EcoCute automation');
     }
 
     try {
@@ -556,6 +652,8 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     this.intervalHandles.clear();
     this.webhookServer?.stop();
     this.webhookServer = undefined;
+    this.ecocuteSolarAutomation?.stop();
+    this.ecocuteSolarAutomation = undefined;
   }
 
   private get configuredHost(): string {
@@ -609,8 +707,30 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     this.webhookServer.start();
   }
 
+  private startEcocuteSolarAutomation(): void {
+    this.ecocuteSolarAutomation?.stop();
+    this.ecocuteSolarAutomation = undefined;
+
+    if (!this.ecocuteSolarAutomationEnabled) {
+      return;
+    }
+
+    if (!this.echonetEnabled || !this.echonetBoolean('preferEcocutes', true)) {
+      this.log.warn('EcoCute solar automation requires echonet.enabled and echonet.preferEcocutes');
+      return;
+    }
+
+    this.ecocuteSolarAutomation = new EcocuteSolarAutomation(this);
+    this.ecocuteSolarAutomation.start();
+  }
+
   private echonetBoolean(key: string, defaultValue: boolean): boolean {
     const value = this.echonetConfig[key];
+    return typeof value === 'boolean' ? value : defaultValue;
+  }
+
+  private energyBoolean(key: string, defaultValue: boolean): boolean {
+    const value = this.energyConfig[key];
     return typeof value === 'boolean' ? value : defaultValue;
   }
 
@@ -632,6 +752,51 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     return value && typeof value === 'object' && !Array.isArray(value)
       ? value as Record<string, unknown>
       : {};
+  }
+
+  private get energyConfig(): Record<string, unknown> {
+    const value = this.config.energy;
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+  }
+
+  private get ecocuteSolarAutomationConfig(): Record<string, unknown> {
+    const value = this.config.ecocuteSolarAutomation;
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+  }
+
+  private get needsEchonetLiteDiscovery(): boolean {
+    return this.echonetDiscovery || this.echonetEnabled || this.energyEnabled || this.ecocuteSolarAutomationEnabled;
+  }
+
+  private numberFrom(
+    value: unknown,
+    defaultValue: number,
+    min: number,
+    max: number,
+    integer = true,
+  ): number {
+    const parsed = typeof value === 'number' ? value : Number(String(value || '').trim());
+    if (!Number.isFinite(parsed)) {
+      return defaultValue;
+    }
+
+    const bounded = Math.max(min, Math.min(max, parsed));
+    return integer ? Math.trunc(bounded) : bounded;
+  }
+
+  private parseMinutes(value: string): number {
+    const match = value.match(/^(\d{1,2}):(\d{2})$/u);
+    if (!match) {
+      return 0;
+    }
+
+    const hours = Math.max(0, Math.min(23, Number(match[1])));
+    const minutes = Math.max(0, Math.min(59, Number(match[2])));
+    return (hours * 60) + minutes;
   }
 
   public formatHomeKitName(name: string): string {
