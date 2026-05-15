@@ -89,12 +89,23 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   }
 
   provisionDevice(device: SupportedDevice) {
-    const uuid = this.markDeviceSeen(device);
-    const existingAccessory = this.accessories.find(accessory => accessory.UUID === uuid);
+    const uuid = this.api.hap.uuid.generate(device.uuidSeed);
     const homeKitName = this.formatHomeKitName(device.displayName);
+    const exactAccessory = this.accessories.find(accessory => accessory.UUID === uuid);
+    const compatibleAccessory = exactAccessory ? undefined : this.findCompatibleCachedAccessory(device, homeKitName);
+    const existingAccessory = exactAccessory || compatibleAccessory;
+    const controlTransport = this.controlTransportForDevice(device);
 
     if (existingAccessory) {
-      this.log.info('Restoring existing accessory from cache:', existingAccessory.displayName);
+      this.discoveredAccessoryUUIDs.add(existingAccessory.UUID);
+      if (compatibleAccessory) {
+        this.log.info(
+          `Reusing cached accessory identity for '${device.displayName}' ` +
+          `(control=${controlTransport}, previousUuid=${compatibleAccessory.UUID}, currentSeed=${device.uuidSeed})`,
+        );
+      } else {
+        this.log.info(`Restoring existing accessory from cache: ${existingAccessory.displayName} (control=${controlTransport})`);
+      }
 
       existingAccessory.context.device = device;
       existingAccessory.context.kind = device.kind;
@@ -107,7 +118,8 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
 
       this.createAccessoryHandler(device.kind, existingAccessory);
     } else {
-      this.log.info('Adding new accessory:', device.displayName);
+      this.discoveredAccessoryUUIDs.add(uuid);
+      this.log.info(`Adding new accessory: ${device.displayName} (control=${controlTransport})`);
       const accessory = new this.api.platformAccessory(homeKitName, uuid, this.categoryForDevice(device.kind));
       accessory.context.device = device;
       accessory.context.kind = device.kind;
@@ -249,7 +261,11 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       const endpoint = this.client.echonetEndpointForEcocute(device);
       if (!endpoint) {
         if (this.echonetEnabled && this.echonetBoolean('preferEcocutes', true)) {
-          this.log.info(`Skipping EcoCute '${device.displayName}': no matching ECHONET endpoint`);
+          const retained = this.markCachedAccessoriesSeen('ecocute', device.displayName);
+          this.log.info(
+            `Skipping EcoCute '${device.displayName}': no matching ECHONET endpoint` +
+            (retained > 0 ? `; keeping ${retained} cached HomeKit accessory until discovery recovers` : ''),
+          );
         } else {
           this.log.debug(`Skipping EcoCute '${device.displayName}': ECHONET Lite direct control is disabled`);
         }
@@ -272,7 +288,11 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     const solarEndpoint = this.client.echonetEndpointForHomeSolar();
     const batteryEndpoint = this.client.echonetEndpointForStorageBattery();
     if (!solarEndpoint && !batteryEndpoint) {
-      this.log.info('Skipping AiSEG2 energy status accessory: no ECHONET Lite solar or storage battery endpoint found');
+      const retained = this.markCachedAccessoriesSeen('energy');
+      this.log.warn(
+        'Skipping AiSEG2 energy status accessory: no ECHONET Lite solar or storage battery endpoint found' +
+        (retained > 0 ? `; keeping ${retained} cached HomeKit accessory until discovery recovers` : ''),
+      );
       return;
     }
 
@@ -624,7 +644,14 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   }
 
   private unregisterStaleAccessories(): void {
-    const staleAccessories = this.accessories.filter(accessory => !this.discoveredAccessoryUUIDs.has(accessory.UUID));
+    const staleByUuid = new Map<string, PlatformAccessory>();
+    for (const accessory of this.accessories) {
+      if (!this.discoveredAccessoryUUIDs.has(accessory.UUID) && !staleByUuid.has(accessory.UUID)) {
+        staleByUuid.set(accessory.UUID, accessory);
+      }
+    }
+
+    const staleAccessories = [...staleByUuid.values()];
     if (staleAccessories.length === 0) {
       return;
     }
@@ -635,11 +662,68 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     }
 
     this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, staleAccessories);
-    for (const accessory of staleAccessories) {
-      const index = this.accessories.indexOf(accessory);
-      if (index >= 0) {
+    const staleUUIDs = new Set(staleAccessories.map(accessory => accessory.UUID));
+    for (let index = this.accessories.length - 1; index >= 0; index -= 1) {
+      if (staleUUIDs.has(this.accessories[index].UUID)) {
         this.accessories.splice(index, 1);
       }
+    }
+  }
+
+  private findCompatibleCachedAccessory(device: SupportedDevice, homeKitName: string): PlatformAccessory | undefined {
+    const candidates = this.accessories.filter(accessory => {
+      const cachedDevice = accessory.context.device as SupportedDevice | undefined;
+      if (cachedDevice?.kind !== device.kind) {
+        return false;
+      }
+
+      const cachedName = cachedDevice?.displayName
+        ? this.formatHomeKitName(cachedDevice.displayName)
+        : accessory.displayName;
+      return cachedName === homeKitName || accessory.displayName === homeKitName;
+    });
+
+    return candidates.length === 1 ? candidates[0] : undefined;
+  }
+
+  private markCachedAccessoriesSeen(kind: SupportedDeviceKind, displayName?: string): number {
+    const homeKitName = displayName ? this.formatHomeKitName(displayName) : undefined;
+    let retained = 0;
+    for (const accessory of this.accessories) {
+      const cachedDevice = accessory.context.device as SupportedDevice | undefined;
+      if (cachedDevice?.kind !== kind) {
+        continue;
+      }
+      if (homeKitName) {
+        const cachedName = cachedDevice.displayName
+          ? this.formatHomeKitName(cachedDevice.displayName)
+          : accessory.displayName;
+        if (cachedName !== homeKitName && accessory.displayName !== homeKitName) {
+          continue;
+        }
+      }
+
+      this.discoveredAccessoryUUIDs.add(accessory.UUID);
+      retained += 1;
+    }
+
+    return retained;
+  }
+
+  private controlTransportForDevice(device: SupportedDevice): string {
+    switch (device.kind) {
+      case 'shutter':
+        return this.client.echonetEndpointForShutter(device) ? 'ECHONET Lite' : 'AiSEG2';
+      case 'airPurifier':
+        return this.client.echonetEndpointForAirPurifier(device) ? 'ECHONET Lite' : 'AiSEG2';
+      case 'ecocute':
+        return this.client.echonetEndpointForEcocute(device) ? 'ECHONET Lite' : 'unavailable';
+      case 'doorLock':
+        return this.client.echonetEndpointForDoorLock(device) ? 'ECHONET Lite' : 'AiSEG2';
+      case 'energy':
+        return 'ECHONET Lite';
+      default:
+        return 'AiSEG2';
     }
   }
 

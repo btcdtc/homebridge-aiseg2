@@ -11,4 +11,4 @@ export const PLUGIN_NAME = 'homebridge-aiseg2';
 /**
  * Keep this in sync with package.json for HomeKit FirmwareRevision.
  */
-export const PLUGIN_VERSION = '0.9.31';
+export const PLUGIN_VERSION = '0.9.33';
