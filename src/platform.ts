@@ -194,6 +194,21 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     for (const device of devices) {
       this.markDeviceSeen(device);
       this.log.info(`Discovered shutter '${device.displayName}'`);
+      const endpoint = this.client.echonetEndpointForShutter(device);
+      if (endpoint) {
+        this.log.info(`ECHONET mapped shutter '${device.displayName}' -> ${endpoint.host}/${endpoint.eoj}`);
+        if (this.client.supportsShutterHalfOpen(device) && !this.client.echonetSupportsShutterPosition(device)) {
+          const timedPositionNote = this.client.echonetSupportsTimedShutterPosition(device)
+            ? ' It exposes timed movement properties (0xd2/0xe9), but not exact position control.'
+            : '';
+          this.log.info(
+            `ECHONET shutter '${device.displayName}' supports open/close/stop direct control; ` +
+            `half-open remains on AiSEG2 because the endpoint does not expose degree-of-opening control (0xe1).${timedPositionNote}`,
+          );
+        }
+      } else if (this.echonetEnabled && this.echonetBoolean('preferShutters', true)) {
+        this.log.info(`AiSEG fallback for shutter '${device.displayName}': no matching ECHONET endpoint`);
+      }
       this.provisionDevice(device);
     }
   }
@@ -205,6 +220,12 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     for (const device of devices) {
       this.markDeviceSeen(device);
       this.log.info(`Discovered air purifier '${device.displayName}'`);
+      const endpoint = this.client.echonetEndpointForAirPurifier(device);
+      if (endpoint) {
+        this.log.info(`ECHONET mapped air purifier '${device.displayName}' -> ${endpoint.host}/${endpoint.eoj}`);
+      } else if (this.echonetEnabled && this.echonetBoolean('preferAirPurifiers', true)) {
+        this.log.info(`AiSEG fallback for air purifier '${device.displayName}': no matching ECHONET endpoint`);
+      }
       this.provisionDevice(device);
     }
   }
@@ -230,6 +251,12 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     for (const device of devices) {
       this.markDeviceSeen(device);
       this.log.info(`Discovered door lock '${device.displayName}'`);
+      const endpoint = this.client.echonetEndpointForDoorLock(device);
+      if (endpoint) {
+        this.log.info(`ECHONET mapped door lock '${device.displayName}' -> ${endpoint.host}/${endpoint.eoj}`);
+      } else if (this.echonetEnabled && this.echonetBoolean('preferDoorLocks', true)) {
+        this.log.info(`AiSEG fallback for door lock '${device.displayName}': no unique ECHONET endpoint`);
+      }
       this.provisionDevice(device);
     }
   }
@@ -322,6 +349,10 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     return this.configBoolean('echonetDiscovery', false);
   }
 
+  public get echonetEnabled(): boolean {
+    return this.echonetBoolean('enabled', false);
+  }
+
   public configureGroupedService(primaryService: Service, linkedServices: Service[], enabled: boolean): void {
     primaryService.setPrimaryService(enabled);
     for (const linkedService of linkedServices) {
@@ -379,6 +410,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
         this.log.info(`AiSEG2 auto discovery is enabled, but host is configured; using ${host}`);
       }
       this.client = new Aiseg2Client(host, this.password);
+      this.configureClientEchonet();
       return;
     }
 
@@ -390,10 +422,11 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     const result = await discoverAiseg2Controller(this.password);
     this.log.info(`Auto discovered AiSEG2 controller at ${result.host} on ${result.interfaceName} ${result.subnet}`);
     this.client = new Aiseg2Client(result.host, this.password);
+    this.configureClientEchonet();
   }
 
   private async discoverEchonetLiteDevices(): Promise<void> {
-    if (!this.echonetDiscovery) {
+    if (!this.echonetDiscovery && !this.echonetEnabled) {
       return;
     }
 
@@ -403,11 +436,15 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       : localEchonetLiteSubnets().join(', ') || 'none';
 
     this.log.info(`Discovering ECHONET Lite devices on ${targetDescription}`);
+    if (this.echonetEnabled) {
+      this.log.info('ECHONET Lite direct control enabled for matched shutters, door locks, and air purifiers');
+    }
 
     try {
       const nodes = await discoverEchonetLiteNodes({
         subnets: configuredSubnets,
       });
+      this.client.setEchonetNodes(nodes);
 
       if (nodes.length === 0) {
         this.log.info('No ECHONET Lite devices responded to discovery');
@@ -494,7 +531,8 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   }
 
   private get configuredEchonetSubnets(): string[] {
-    const value = this.config.echonetSubnets;
+    const nested = this.echonetConfig.subnets;
+    const value = nested !== undefined ? nested : this.config.echonetSubnets;
     if (Array.isArray(value)) {
       return value.map(entry => String(entry).trim()).filter(Boolean);
     }
@@ -503,6 +541,41 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       .split(/[\s,]+/)
       .map(entry => entry.trim())
       .filter(Boolean);
+  }
+
+  private configureClientEchonet(): void {
+    this.client.configureEchonet({
+      enabled: this.echonetEnabled,
+      preferShutters: this.echonetBoolean('preferShutters', true),
+      preferDoorLocks: this.echonetBoolean('preferDoorLocks', true),
+      preferAirPurifiers: this.echonetBoolean('preferAirPurifiers', true),
+      doorLockHosts: this.echonetStringMap('doorLockHosts'),
+    });
+  }
+
+  private echonetBoolean(key: string, defaultValue: boolean): boolean {
+    const value = this.echonetConfig[key];
+    return typeof value === 'boolean' ? value : defaultValue;
+  }
+
+  private echonetStringMap(key: string): Record<string, string> {
+    const value = this.echonetConfig[key];
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return {};
+    }
+
+    return Object.fromEntries(
+      Object.entries(value)
+        .map(([entryKey, entryValue]) => [entryKey, String(entryValue).trim()])
+        .filter((entry): entry is [string, string] => Boolean(entry[1])),
+    );
+  }
+
+  private get echonetConfig(): Record<string, unknown> {
+    const value = this.config.echonet;
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
   }
 
   public formatHomeKitName(name: string): string {

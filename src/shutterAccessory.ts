@@ -25,7 +25,11 @@ export class ShutterAccessory {
   ) {
     this.device = accessory.context.device as ShutterDevice;
 
-    this.platform.configureAccessoryInformation(this.accessory, 'AiSEG2 Shutter', this.device.uuidSeed);
+    this.platform.configureAccessoryInformation(
+      this.accessory,
+      this.platform.client.echonetEndpointForShutter(this.device) ? 'AiSEG2 Shutter (ECHONET Lite)' : 'AiSEG2 Shutter',
+      this.device.uuidSeed,
+    );
 
     const existingService = this.accessory.getService(this.platform.Service.WindowCovering);
     const serviceName = this.platform.formatHomeKitName(this.device.displayName);
@@ -109,13 +113,17 @@ export class ShutterAccessory {
     this.applyPendingPosition(currentPosition, targetPosition);
 
     try {
-      const token = await this.platform.client.getShutterControlToken();
+      const token = this.platform.client.echonetEndpointForShutter(this.device)
+        ? ''
+        : await this.platform.client.getShutterControlToken();
       const response = await this.platform.client.changeShutterPosition(this.device, token, targetPosition);
       this.platform.log.info(
         `${this.device.displayName} position request accepted: target=${targetPosition}%, ` +
-        `command=${response.command}, page=${response.operationPage}, acceptId=${response.acceptId ?? '-'}`,
+          `transport=${response.transport || 'AiSEG2'}${response.endpoint ? ` endpoint=${response.endpoint}` : ''}, ` +
+          `command=${response.command}, page=${response.operationPage}, acceptId=${response.acceptId ?? '-'}` +
+          (response.fallbackReason ? `, fallback=${response.fallbackReason}` : ''),
       );
-      this.monitorPositionAction(actionId, targetPosition, response, token);
+      this.monitorPositionAction(actionId, targetPosition, response, response.token || token);
       if (this.queuedTargetPosition !== undefined) {
         this.clearPendingPosition(actionId);
         this.runQueuedTargetPosition();
@@ -173,13 +181,17 @@ export class ShutterAccessory {
     this.cancelPendingPosition();
     this.queuedTargetPosition = undefined;
     try {
-      const token = await this.platform.client.getShutterControlToken();
+      const token = this.platform.client.echonetEndpointForShutter(this.device)
+        ? ''
+        : await this.platform.client.getShutterControlToken();
       const response = await this.platform.client.stopShutter(this.device, token);
       this.platform.log.info(
         `${this.device.displayName} stop request accepted: command=${response.command}, ` +
-        `page=${response.operationPage}, acceptId=${response.acceptId ?? '-'}`,
+        `transport=${response.transport || 'AiSEG2'}${response.endpoint ? ` endpoint=${response.endpoint}` : ''}, ` +
+        `page=${response.operationPage}, acceptId=${response.acceptId ?? '-'}` +
+        (response.fallbackReason ? `, fallback=${response.fallbackReason}` : ''),
       );
-      await this.waitForAcceptedChange(response, token);
+      await this.waitForAcceptedChange(response, response.token || token);
     } catch (error) {
       throw this.platform.homeKitError(error);
     }

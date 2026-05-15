@@ -67,6 +67,45 @@
         "required": false,
         "default": "",
         "description": "Optional comma-separated /24 to /32 IPv4 targets for ECHONET Lite discovery, for example 192.168.20.0/24. Leave empty to scan the Homebridge host's current local IPv4 subnets."
+      },
+      "echonet": {
+        "title": "ECHONET Lite direct control",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "title": "Enable ECHONET Lite direct control",
+            "type": "boolean",
+            "default": false,
+            "description": "Enables direct ECHONET Lite status/control for automatically matched shutters, door locks, and air purifiers. AiSEG2 remains the discovery source and fallback path."
+          },
+          "subnets": {
+            "title": "ECHONET Lite subnets",
+            "type": "string",
+            "default": "",
+            "description": "Optional comma-separated /24 to /32 IPv4 targets, for example 192.168.20.0/24. Leave empty to scan the Homebridge host's current local IPv4 subnets."
+          },
+          "preferShutters": {
+            "title": "Prefer ECHONET Lite for shutters",
+            "type": "boolean",
+            "default": true
+          },
+          "preferDoorLocks": {
+            "title": "Prefer ECHONET Lite for door locks",
+            "type": "boolean",
+            "default": true
+          },
+          "preferAirPurifiers": {
+            "title": "Prefer ECHONET Lite for air purifiers",
+            "type": "boolean",
+            "default": true
+          },
+          "doorLockHosts": {
+            "title": "Door lock host overrides",
+            "type": "object",
+            "default": {},
+            "description": "Optional map from AiSEG2 door lock display name to a HF-JA1/JA2 IP address when automatic matching is ambiguous."
+          }
+        }
       }
     }
   }

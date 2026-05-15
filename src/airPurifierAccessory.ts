@@ -54,7 +54,13 @@ export class AirPurifierAccessory {
   ) {
     this.device = accessory.context.device as AirPurifierDevice;
 
-    this.platform.configureAccessoryInformation(this.accessory, 'AiSEG2 Air Purifier', this.device.uuidSeed);
+    this.platform.configureAccessoryInformation(
+      this.accessory,
+      this.platform.client.echonetEndpointForAirPurifier(this.device)
+        ? 'AiSEG2 Air Purifier (ECHONET Lite)'
+        : 'AiSEG2 Air Purifier',
+      this.device.uuidSeed,
+    );
 
     const existingService = this.accessory.getService(this.platform.Service.AirPurifier);
     const serviceName = this.platform.formatHomeKitName(this.device.displayName);
@@ -175,14 +181,19 @@ export class AirPurifierAccessory {
     this.applyModeState(mode);
 
     try {
-      const token = await this.platform.client.getAirPurifierControlToken(this.device);
+      const token = this.platform.client.echonetEndpointForAirPurifier(this.device)
+        ? ''
+        : await this.platform.client.getAirPurifierControlToken(this.device);
       const response = await this.platform.client.changeAirPurifierMode(this.device, token, mode);
       this.platform.log.info(
-        `${this.device.displayName} mode request accepted: target=${this.formatMode(mode)}, acceptId=${response.acceptId ?? '-'}`,
+        `${this.device.displayName} mode request accepted: target=${this.formatMode(mode)}, ` +
+        `transport=${response.transport || 'AiSEG2'}${response.endpoint ? ` endpoint=${response.endpoint}` : ''}, ` +
+        `acceptId=${response.acceptId ?? '-'}` +
+        (response.fallbackReason ? `, fallback=${response.fallbackReason}` : ''),
       );
 
       this.applyModeState(mode);
-      this.monitorModeAction(actionId, mode, response, token);
+      this.monitorModeAction(actionId, mode, response, response.token || token);
       if (this.queuedMode !== undefined) {
         this.clearPendingMode(actionId);
         this.runQueuedMode();

@@ -489,10 +489,11 @@ function decodePropertyMap(value: Buffer): string[] | undefined {
       .map(epc => `0x${epc.toString(16).padStart(2, '0')}`);
   }
 
+  const bitmap = value.length >= 17 ? value.subarray(1, 17) : value;
   const properties: string[] = [];
-  for (let byteIndex = 0; byteIndex < Math.min(value.length, 16); byteIndex++) {
+  for (let byteIndex = 0; byteIndex < Math.min(bitmap.length, 16); byteIndex++) {
     for (let bit = 0; bit < 8; bit++) {
-      if ((value[byteIndex] & (1 << bit)) !== 0) {
+      if ((bitmap[byteIndex] & (1 << bit)) !== 0) {
         properties.push(`0x${((bit << 4) + byteIndex + 0x80).toString(16)}`);
       }
     }

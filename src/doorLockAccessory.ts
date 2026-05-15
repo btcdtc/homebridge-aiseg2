@@ -26,7 +26,11 @@ export class DoorLockAccessory {
   ) {
     this.device = accessory.context.device as DoorLockDevice;
 
-    this.platform.configureAccessoryInformation(this.accessory, 'AiSEG2 Door Lock', this.device.uuidSeed);
+    this.platform.configureAccessoryInformation(
+      this.accessory,
+      this.platform.client.echonetEndpointForDoorLock(this.device) ? 'AiSEG2 Door Lock (ECHONET Lite)' : 'AiSEG2 Door Lock',
+      this.device.uuidSeed,
+    );
 
     const existingService = this.accessory.getService(this.platform.Service.LockMechanism);
     const serviceName = this.platform.formatHomeKitName(this.device.displayName);
@@ -84,7 +88,8 @@ export class DoorLockAccessory {
     const status = await this.platform.client.getDoorLockStatus(this.device, true, 'action');
     this.platform.log.info(
       `${this.device.displayName} lock request: target=${this.formatSecured(desiredSecured)}, ` +
-      `current=${this.formatSecured(status.secured)}, command=${status.statecmd || '-'}`,
+      `current=${this.formatSecured(status.secured)}, command=${status.statecmd || '-'}, ` +
+      `transport=${status.transport || 'AiSEG2'}${status.endpoint ? ` endpoint=${status.endpoint}` : ''}`,
     );
 
     if (status.secured === desiredSecured) {
@@ -106,16 +111,20 @@ export class DoorLockAccessory {
     this.updateTargetState(desiredSecured);
 
     try {
-      const token = await this.platform.client.getDoorLockControlToken();
+      const token = this.platform.client.echonetEndpointForDoorLock(this.device)
+        ? ''
+        : await this.platform.client.getDoorLockControlToken();
       this.rememberSubmittedTarget(desiredSecured);
       const response = await this.platform.client.changeDoorLock(this.device, token, status);
       this.assertAcceptedResponse(response);
       this.platform.log.info(
         `${this.device.displayName} lock request accepted: target=${this.formatSecured(desiredSecured)}, ` +
-        `acceptId=${response.acceptId ?? '-'}`,
+        `transport=${response.transport || 'AiSEG2'}${response.endpoint ? ` endpoint=${response.endpoint}` : ''}, ` +
+        `acceptId=${response.acceptId ?? '-'}` +
+        (response.fallbackReason ? `, fallback=${response.fallbackReason}` : ''),
       );
 
-      this.confirmTargetState(response, token, desiredSecured).catch(error => {
+      this.confirmTargetState(response, response.token || token, desiredSecured).catch(error => {
         this.platform.log.error(`Failed to confirm door lock '${this.device.displayName}' state: ${this.formatError(error)}`);
         this.updateStatus(true).catch(refreshError => {
           this.platform.log.error(

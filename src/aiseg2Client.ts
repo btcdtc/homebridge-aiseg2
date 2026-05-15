@@ -16,6 +16,14 @@ import {
   displayNameFromSummary,
   uuidSeedFor,
 } from './devices';
+import {
+  EchonetLiteClient,
+  EchonetLiteEndpoint,
+  bufferFromHexByte,
+  formatEndpoint,
+  normalizeEoj,
+} from './echonetLiteClient';
+import { EchonetLiteNode } from './echonetLiteDiscovery';
 
 
 export enum CheckResult {
@@ -81,6 +89,9 @@ export interface ShutterStatus {
   openState: string;
   condition: string;
   position: number;
+  transport?: ControlTransport;
+  endpoint?: string;
+  fallbackReason?: string;
 }
 
 export interface AirPurifierStatus {
@@ -90,6 +101,9 @@ export interface AirPurifierStatus {
   smellLevel?: number;
   pm25Level?: number;
   dustLevel?: number;
+  transport?: ControlTransport;
+  endpoint?: string;
+  fallbackReason?: string;
 }
 
 export interface AirEnvironmentStatus {
@@ -101,6 +115,9 @@ export interface DoorLockStatus {
   lockVal: string;
   statecmd: string;
   secured: boolean | undefined;
+  transport?: ControlTransport;
+  endpoint?: string;
+  fallbackReason?: string;
 }
 
 export interface ContactSensorStatus {
@@ -118,6 +135,10 @@ export interface OperationResponse {
   result?: string | number;
   acceptId?: number | string;
   errorInfo?: string | number;
+  token?: string;
+  transport?: ControlTransport;
+  endpoint?: string;
+  fallbackReason?: string;
 }
 
 export interface AirConditionerOperationResponse extends OperationResponse {
@@ -277,6 +298,16 @@ interface CachedValue<T> {
 }
 
 export type RequestPriority = 'normal' | 'action';
+export type ControlTransport = 'AiSEG2' | 'ECHONET Lite';
+
+export interface EchonetControlOptions {
+  enabled: boolean;
+  preferShutters: boolean;
+  preferDoorLocks: boolean;
+  preferAirPurifiers: boolean;
+  doorLockHosts: Record<string, string>;
+}
+
 type QueuedRequest = () => Promise<void>;
 
 const DEVICE_LIST_PATH = '/page/devices/device/32';
@@ -328,18 +359,94 @@ export class Aiseg2Client {
   private smokeInflight = new Map<string, Promise<FireAlarmPageData>>();
   private airPurifierCache = new Map<string, CachedValue<AirPurifierPageData>>();
   private airPurifierInflight = new Map<string, Promise<AirPurifierPageData>>();
+  private airPurifierSensorStatusCache = new Map<string, Pick<AirPurifierStatus, 'smellLevel' | 'pm25Level' | 'dustLevel'>>();
   private airEnvironmentDeviceCache?: CachedValue<AirEnvironmentSensorDevice[]>;
   private airEnvironmentStatusCache?: CachedValue<Map<string, AirEnvironmentStatus>>;
   private airEnvironmentStatusInflight?: Promise<Map<string, AirEnvironmentStatus>>;
   private pageTokenCache = new Map<string, CachedValue<string>>();
   private readonly actionRequestQueue: QueuedRequest[] = [];
   private readonly normalRequestQueue: QueuedRequest[] = [];
+  private readonly echonetClient = new EchonetLiteClient();
+  private echonetOptions: EchonetControlOptions = {
+    enabled: false,
+    preferShutters: false,
+    preferDoorLocks: false,
+    preferAirPurifiers: false,
+    doorLockHosts: {},
+  };
+
+  private echonetNodes: EchonetLiteNode[] = [];
+
   private activeRequestCount = 0;
 
   constructor(
     private readonly host: string,
     private readonly password: string,
   ) {}
+
+  configureEchonet(options: Partial<EchonetControlOptions>): void {
+    this.echonetOptions = {
+      enabled: options.enabled ?? false,
+      preferShutters: options.preferShutters ?? true,
+      preferDoorLocks: options.preferDoorLocks ?? true,
+      preferAirPurifiers: options.preferAirPurifiers ?? true,
+      doorLockHosts: options.doorLockHosts ?? {},
+    };
+  }
+
+  setEchonetNodes(nodes: EchonetLiteNode[]): void {
+    this.echonetNodes = nodes;
+  }
+
+  echonetEndpointForShutter(device: ShutterDevice): EchonetLiteEndpoint | undefined {
+    if (!this.echonetOptions.enabled || !this.echonetOptions.preferShutters) {
+      return undefined;
+    }
+
+    return this.findEchonetEndpoint(['0x0261', '0x0263'], normalizeEoj(device.eoj));
+  }
+
+  echonetSupportsShutterPosition(device: ShutterDevice): boolean {
+    const endpoint = this.echonetEndpointForShutter(device);
+    return endpoint ? this.canSetEchonetShutterPosition(endpoint, 50) : false;
+  }
+
+  echonetSupportsTimedShutterPosition(device: ShutterDevice): boolean {
+    const endpoint = this.echonetEndpointForShutter(device);
+    return endpoint ? this.canSetTimedEchonetShutterPosition(endpoint) : false;
+  }
+
+  echonetEndpointForAirPurifier(device: AirPurifierDevice): EchonetLiteEndpoint | undefined {
+    if (!this.echonetOptions.enabled || !this.echonetOptions.preferAirPurifiers) {
+      return undefined;
+    }
+
+    return this.findEchonetEndpoint(['0x0135'], normalizeEoj(device.eoj));
+  }
+
+  echonetEndpointForDoorLock(device: DoorLockDevice): EchonetLiteEndpoint | undefined {
+    if (!this.echonetOptions.enabled || !this.echonetOptions.preferDoorLocks) {
+      return undefined;
+    }
+
+    const configuredHost = this.echonetOptions.doorLockHosts[device.displayName] ||
+      this.echonetOptions.doorLockHosts[this.cleanDeviceName(device.displayName)];
+    if (configuredHost) {
+      return this.findEchonetEndpoint(['0x05fd'], undefined, configuredHost);
+    }
+
+    const endpoints = this.findEchonetEndpoints(['0x05fd'])
+      .filter(endpoint => endpoint.productCode?.includes('HF-JA') || endpoint.object.eoj === '0x05fd01');
+
+    if (endpoints.length !== 1) {
+      return undefined;
+    }
+
+    return {
+      host: endpoints[0].node.host,
+      eoj: endpoints[0].object.eoj,
+    };
+  }
 
   async getDeviceSummaries(): Promise<Aiseg2DeviceSummary[]> {
     const now = Date.now();
@@ -654,6 +761,27 @@ export class Aiseg2Client {
     force = false,
     priority: RequestPriority = 'normal',
   ): Promise<ShutterStatus> {
+    const endpoint = this.echonetEndpointForShutter(device);
+    if (endpoint) {
+      try {
+        return await this.getEchonetShutterStatus(endpoint);
+      } catch (error) {
+        const fallback = await this.getAisegShutterStatus(device, force, priority);
+        return {
+          ...fallback,
+          fallbackReason: this.formatError(error),
+        };
+      }
+    }
+
+    return this.getAisegShutterStatus(device, force, priority);
+  }
+
+  private async getAisegShutterStatus(
+    device: ShutterDevice,
+    force = false,
+    priority: RequestPriority = 'normal',
+  ): Promise<ShutterStatus> {
     const statuses = await this.getShutterPanelData(force, priority);
     const status = statuses.find(item => item.nodeId === device.nodeId && item.eoj === device.eoj);
 
@@ -666,6 +794,7 @@ export class Aiseg2Client {
       openState: status.shutter?.openState || '',
       condition: status.condition || '',
       position: this.shutterPosition(status),
+      transport: 'AiSEG2',
     };
   }
 
@@ -674,17 +803,56 @@ export class Aiseg2Client {
     force = false,
     priority: RequestPriority = 'normal',
   ): Promise<AirPurifierStatus> {
+    const endpoint = this.echonetEndpointForAirPurifier(device);
+    if (endpoint) {
+      try {
+        const direct = await this.getEchonetAirPurifierStatus(endpoint);
+        const cachedSensors = this.airPurifierSensorStatusCache.get(this.airPurifierKey(device));
+        if (!force) {
+          void this.getAisegAirPurifierStatus(device, false, priority).catch(() => undefined);
+        }
+
+        return {
+          ...direct,
+          ...cachedSensors,
+        };
+      } catch (error) {
+        const fallback = await this.getAisegAirPurifierStatus(device, force, priority);
+        return {
+          ...fallback,
+          fallbackReason: this.formatError(error),
+        };
+      }
+    }
+
+    return this.getAisegAirPurifierStatus(device, force, priority);
+  }
+
+  private async getAisegAirPurifierStatus(
+    device: AirPurifierDevice,
+    force = false,
+    priority: RequestPriority = 'normal',
+  ): Promise<AirPurifierStatus> {
     const page = await this.getAirPurifierPageData(device, force, priority);
     const mode = page.airclean?.mode || '0x40';
 
-    return {
+    const status: AirPurifierStatus = {
       state: page.state || '0x31',
       mode,
       active: page.state === '0x30' && mode !== '0x40',
       smellLevel: this.parseAircleanLevel(page.airclean?.smell),
       pm25Level: this.parseAircleanLevel(page.airclean?.pm25),
       dustLevel: this.parseAircleanLevel(page.airclean?.dust),
+      transport: 'AiSEG2',
     };
+
+    this.airPurifierSensorStatusCache.set(this.airPurifierKey(device), {
+      smellLevel: status.smellLevel,
+      pm25Level: status.pm25Level,
+      dustLevel: status.dustLevel,
+    });
+
+    return status;
   }
 
   async getAirEnvironmentStatus(device: AirEnvironmentSensorDevice, force = false): Promise<AirEnvironmentStatus> {
@@ -697,6 +865,27 @@ export class Aiseg2Client {
     force = false,
     priority: RequestPriority = 'normal',
   ): Promise<DoorLockStatus> {
+    const endpoint = this.echonetEndpointForDoorLock(device);
+    if (endpoint) {
+      try {
+        return await this.getEchonetDoorLockStatus(endpoint);
+      } catch (error) {
+        const fallback = await this.getAisegDoorLockStatus(device, force, priority);
+        return {
+          ...fallback,
+          fallbackReason: this.formatError(error),
+        };
+      }
+    }
+
+    return this.getAisegDoorLockStatus(device, force, priority);
+  }
+
+  private async getAisegDoorLockStatus(
+    device: DoorLockDevice,
+    force = false,
+    priority: RequestPriority = 'normal',
+  ): Promise<DoorLockStatus> {
     const status = await this.getLockupStatus(force, priority);
     const lock = status.arrayElDevList.find(item => item.nodeId === device.nodeId && item.eoj === device.eoj);
 
@@ -705,6 +894,76 @@ export class Aiseg2Client {
     }
 
     return this.doorLockStatus(lock);
+  }
+
+  private async getEchonetShutterStatus(endpoint: EchonetLiteEndpoint): Promise<ShutterStatus> {
+    const values = await this.echonetClient.getProperties(endpoint, [0x80, 0xea]);
+    const openState = this.hexByte(values.get(0xea)) || '';
+
+    return {
+      state: this.hexByte(values.get(0x80)) || '0x31',
+      openState,
+      condition: this.echonetShutterCondition(openState),
+      position: this.echonetShutterPosition(openState),
+      transport: 'ECHONET Lite',
+      endpoint: formatEndpoint(endpoint),
+    };
+  }
+
+  private async getEchonetAirPurifierStatus(endpoint: EchonetLiteEndpoint): Promise<AirPurifierStatus> {
+    const values = await this.echonetClient.getProperties(endpoint, [0x80, 0xf0]);
+    const state = this.hexByte(values.get(0x80)) || '0x31';
+    const mode = this.hexByte(values.get(0xf0)) || (state === '0x30' ? '0x41' : '0x40');
+
+    return {
+      state,
+      mode,
+      active: state === '0x30' && mode !== '0x40',
+      transport: 'ECHONET Lite',
+      endpoint: formatEndpoint(endpoint),
+    };
+  }
+
+  private async getEchonetDoorLockStatus(endpoint: EchonetLiteEndpoint): Promise<DoorLockStatus> {
+    const state = this.hexByte(await this.echonetClient.getProperty(endpoint, 0x80));
+    const secured = state === '0x30' ? true : state === '0x31' ? false : undefined;
+
+    return {
+      lockVal: secured === true ? 'lock_val' : secured === false ? 'lock_val open' : '',
+      statecmd: secured === true ? '0x31' : secured === false ? '0x30' : '',
+      secured,
+      transport: 'ECHONET Lite',
+      endpoint: formatEndpoint(endpoint),
+    };
+  }
+
+  private async setEchonetShutterPosition(endpoint: EchonetLiteEndpoint, targetPosition: number): Promise<void> {
+    if (targetPosition > 0 && targetPosition < 100) {
+      await this.echonetClient.setProperty(endpoint, 0xe1, bufferFromHexByte(targetPosition));
+      return;
+    }
+
+    await this.echonetClient.setProperty(
+      endpoint,
+      0xe0,
+      bufferFromHexByte(this.echonetShutterCommandForTarget(targetPosition)),
+    );
+  }
+
+  private async setEchonetShutterStop(endpoint: EchonetLiteEndpoint): Promise<void> {
+    await this.echonetClient.setProperty(endpoint, 0xe0, bufferFromHexByte(0x43));
+  }
+
+  private async setEchonetAirPurifierMode(endpoint: EchonetLiteEndpoint, mode: string): Promise<void> {
+    const state = mode === '0x40' ? '0x31' : '0x30';
+    await this.echonetClient.setProperties(endpoint, [
+      { epc: 0x80, edt: bufferFromHexByte(state) },
+      { epc: 0xf0, edt: bufferFromHexByte(mode) },
+    ]);
+  }
+
+  private async setEchonetDoorLock(endpoint: EchonetLiteEndpoint, secured: boolean): Promise<void> {
+    await this.echonetClient.setProperty(endpoint, 0x80, bufferFromHexByte(secured ? 0x30 : 0x31));
   }
 
   async getContactSensorStatus(device: ContactSensorDevice): Promise<ContactSensorStatus> {
@@ -873,28 +1132,90 @@ export class Aiseg2Client {
   }
 
   async changeShutterPosition(device: ShutterDevice, token: string, targetPosition: number): Promise<ShutterOperationResponse> {
+    const endpoint = this.echonetEndpointForShutter(device);
+    if (endpoint && this.canSetEchonetShutterPosition(endpoint, targetPosition)) {
+      try {
+        await this.setEchonetShutterPosition(endpoint, targetPosition);
+        this.shutterCache = undefined;
+        this.shutterInflight = undefined;
+        return {
+          result: CheckResult.OK,
+          operationPage: 'echonet',
+          command: String(this.echonetShutterCommandForTarget(targetPosition)),
+          transport: 'ECHONET Lite',
+          endpoint: formatEndpoint(endpoint),
+        };
+      } catch (error) {
+        const fallback = await this.changeAisegShutterPosition(device, token, targetPosition);
+        return {
+          ...fallback,
+          fallbackReason: this.formatError(error),
+        };
+      }
+    }
+
+    return this.changeAisegShutterPosition(device, token, targetPosition);
+  }
+
+  private async changeAisegShutterPosition(
+    device: ShutterDevice,
+    token: string,
+    targetPosition: number,
+  ): Promise<ShutterOperationResponse> {
+    const controlToken = token || await this.getShutterControlToken();
     const command = this.shutterCommandForTarget(device, targetPosition);
     const operationPage = command === '3'
       ? this.shutterDetailOperationPage(device) || '325'
       : '325';
-    const response = await this.postShutterOperation(device, token, command, operationPage);
+    const response = await this.postShutterOperation(device, controlToken, command, operationPage);
 
     return {
       ...response,
       operationPage,
       command,
+      token: controlToken,
+      transport: 'AiSEG2',
     };
   }
 
   async stopShutter(device: ShutterDevice, token: string): Promise<ShutterOperationResponse> {
+    const endpoint = this.echonetEndpointForShutter(device);
+    if (endpoint) {
+      try {
+        await this.setEchonetShutterStop(endpoint);
+        this.shutterCache = undefined;
+        this.shutterInflight = undefined;
+        return {
+          result: CheckResult.OK,
+          operationPage: 'echonet',
+          command: 'stop',
+          transport: 'ECHONET Lite',
+          endpoint: formatEndpoint(endpoint),
+        };
+      } catch (error) {
+        const fallback = await this.stopAisegShutter(device, token);
+        return {
+          ...fallback,
+          fallbackReason: this.formatError(error),
+        };
+      }
+    }
+
+    return this.stopAisegShutter(device, token);
+  }
+
+  private async stopAisegShutter(device: ShutterDevice, token: string): Promise<ShutterOperationResponse> {
+    const controlToken = token || await this.getShutterControlToken();
     const command = '2';
     const operationPage = '325';
-    const response = await this.postShutterOperation(device, token, command, operationPage);
+    const response = await this.postShutterOperation(device, controlToken, command, operationPage);
 
     return {
       ...response,
       operationPage,
       command,
+      token: controlToken,
+      transport: 'AiSEG2',
     };
   }
 
@@ -922,9 +1243,34 @@ export class Aiseg2Client {
   }
 
   async changeAirPurifierMode(device: AirPurifierDevice, token: string, mode: string): Promise<OperationResponse> {
+    const endpoint = this.echonetEndpointForAirPurifier(device);
+    if (endpoint) {
+      try {
+        await this.setEchonetAirPurifierMode(endpoint, mode);
+        this.airPurifierCache.delete(this.airPurifierKey(device));
+        this.airPurifierInflight.delete(this.airPurifierKey(device));
+        return {
+          result: CheckResult.OK,
+          transport: 'ECHONET Lite',
+          endpoint: formatEndpoint(endpoint),
+        };
+      } catch (error) {
+        const fallback = await this.changeAisegAirPurifierMode(device, token, mode);
+        return {
+          ...fallback,
+          fallbackReason: this.formatError(error),
+        };
+      }
+    }
+
+    return this.changeAisegAirPurifierMode(device, token, mode);
+  }
+
+  private async changeAisegAirPurifierMode(device: AirPurifierDevice, token: string, mode: string): Promise<OperationResponse> {
+    const controlToken = token || await this.getAirPurifierControlToken(device);
     const state = mode === '0x40' ? '0x31' : '0x30';
     const response = await this.postJson<OperationResponse>(AIR_PURIFIER_OPERATION_PATH, {
-      token,
+      token: controlToken,
       objSendData: JSON.stringify({
         nodeId: device.nodeId,
         eoj: device.eoj,
@@ -943,16 +1289,45 @@ export class Aiseg2Client {
     this.airPurifierCache.delete(this.airPurifierKey(device));
     this.airPurifierInflight.delete(this.airPurifierKey(device));
 
-    return response;
+    return {
+      ...response,
+      token: controlToken,
+      transport: 'AiSEG2',
+    };
   }
 
   async changeDoorLock(device: DoorLockDevice, token: string, status: DoorLockStatus): Promise<OperationResponse> {
+    const endpoint = this.echonetEndpointForDoorLock(device);
+    if (endpoint && status.secured !== undefined) {
+      try {
+        await this.setEchonetDoorLock(endpoint, !status.secured);
+        this.lockupCache = undefined;
+        this.lockupInflight = undefined;
+        return {
+          result: CheckResult.OK,
+          transport: 'ECHONET Lite',
+          endpoint: formatEndpoint(endpoint),
+        };
+      } catch (error) {
+        const fallback = await this.changeAisegDoorLock(device, token, status);
+        return {
+          ...fallback,
+          fallbackReason: this.formatError(error),
+        };
+      }
+    }
+
+    return this.changeAisegDoorLock(device, token, status);
+  }
+
+  private async changeAisegDoorLock(device: DoorLockDevice, token: string, status: DoorLockStatus): Promise<OperationResponse> {
     if (!status.statecmd) {
       throw new Error(`AiSEG2 did not return a door lock command for '${device.displayName}'`);
     }
 
+    const controlToken = token || await this.getDoorLockControlToken();
     const response = await this.postJson<OperationResponse>(LOCKUP_CHANGE_PATH, {
-      token,
+      token: controlToken,
       nodeId: device.nodeId,
       eoj: device.eoj,
       type: device.type,
@@ -961,7 +1336,11 @@ export class Aiseg2Client {
     this.lockupCache = undefined;
     this.lockupInflight = undefined;
 
-    return response;
+    return {
+      ...response,
+      token: controlToken,
+      transport: 'AiSEG2',
+    };
   }
 
   async checkLightingChange(acceptId: number): Promise<CheckResult> {
@@ -1870,6 +2249,54 @@ export class Aiseg2Client {
     return this.supportsShutterHalfOpen(device) ? '3' : '0';
   }
 
+  private canSetEchonetShutterPosition(endpoint: EchonetLiteEndpoint, targetPosition: number): boolean {
+    if (targetPosition <= 0 || targetPosition >= 100) {
+      return true;
+    }
+
+    const object = this.findEchonetObject(endpoint);
+    return Boolean(object?.setProperties?.includes('0xe1'));
+  }
+
+  private canSetTimedEchonetShutterPosition(endpoint: EchonetLiteEndpoint): boolean {
+    const object = this.findEchonetObject(endpoint);
+    return Boolean(object?.setProperties?.includes('0xd2') && object.setProperties.includes('0xe9'));
+  }
+
+  private echonetShutterCommandForTarget(targetPosition: number): number {
+    return targetPosition <= 0 ? 0x42 : 0x41;
+  }
+
+  private echonetShutterPosition(openState: string): number {
+    switch (openState) {
+      case '0x41':
+      case '0x43':
+        return 100;
+      case '0x42':
+      case '0x44':
+        return 0;
+      default:
+        return 50;
+    }
+  }
+
+  private echonetShutterCondition(openState: string): string {
+    switch (openState) {
+      case '0x41':
+        return '開';
+      case '0x42':
+        return '閉';
+      case '0x43':
+        return '開動作中';
+      case '0x44':
+        return '閉動作中';
+      case '0x45':
+        return '途中停止';
+      default:
+        return '';
+    }
+  }
+
   private shutterDetailOperationPage(device: ShutterDevice): string | undefined {
     if (device.type === '0x42') {
       return undefined;
@@ -1915,7 +2342,60 @@ export class Aiseg2Client {
       lockVal: data.lockVal || '',
       statecmd: data.statecmd || '',
       secured: data.lockVal === 'lock_val' ? true : data.lockVal === 'lock_val open' ? false : undefined,
+      transport: 'AiSEG2',
     };
+  }
+
+  private findEchonetEndpoint(
+    classCodes: string[],
+    eoj?: string,
+    host?: string,
+  ): EchonetLiteEndpoint | undefined {
+    const endpoint = this.findEchonetEndpoints(classCodes)
+      .find(entry =>
+        (!eoj || entry.object.eoj === eoj) &&
+        (!host || entry.node.host === host),
+      );
+
+    return endpoint
+      ? {
+        host: endpoint.node.host,
+        eoj: endpoint.object.eoj,
+      }
+      : undefined;
+  }
+
+  private findEchonetEndpoints(classCodes: string[]): Array<{
+    node: EchonetLiteNode;
+    object: EchonetLiteNode['objects'][number];
+    productCode?: string;
+  }> {
+    return this.echonetNodes.flatMap(node => node.objects
+      .filter(object => classCodes.includes(object.classCode))
+      .map(object => ({
+        node,
+        object,
+        productCode: object.productCode,
+      })));
+  }
+
+  private findEchonetObject(endpoint: EchonetLiteEndpoint): EchonetLiteNode['objects'][number] | undefined {
+    const normalizedEoj = normalizeEoj(endpoint.eoj);
+    return this.echonetNodes
+      .find(node => node.host === endpoint.host)
+      ?.objects.find(object => object.eoj === normalizedEoj);
+  }
+
+  private hexByte(value: Buffer | undefined): string | undefined {
+    if (!value || value.length < 1) {
+      return undefined;
+    }
+
+    return `0x${value[0].toString(16).padStart(2, '0')}`;
+  }
+
+  private formatError(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
   }
 
   private contactDetected(data: LockupContactData): boolean {

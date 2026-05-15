@@ -41,6 +41,14 @@ write the discovered address back to `config.json`, and a configured `host` alwa
         "exposeContactSensorLockState": false,
         "echonetDiscovery": false,
         "echonetSubnets": "",
+        "echonet": {
+            "enabled": false,
+            "subnets": "192.168.20.0/24",
+            "preferShutters": true,
+            "preferDoorLocks": true,
+            "preferAirPurifiers": true,
+            "doorLockHosts": {}
+        },
         "platform": "AiSEG2"
     }]
 
@@ -59,8 +67,17 @@ Set `exposeContactSensorLockState` to `true` to add a read-only Contact Sensor s
 `lockVal`. Locked is reported as contact detected, and unlocked is reported as contact not detected.
 
 Set `echonetDiscovery` to `true` to log ECHONET Lite devices visible from the Homebridge host. Leave `echonetSubnets` empty to scan
-the host's current local IPv4 subnets, or set a comma-separated list such as `192.168.20.0/24` for routed device networks. ECHONET
-Lite discovery is diagnostic only in this version; it does not change the AiSEG2 control path.
+the host's current local IPv4 subnets, or set a comma-separated list such as `192.168.20.0/24` for routed device networks. This
+top-level discovery option is diagnostic; `echonet.enabled` below also runs discovery and uses matched endpoints for direct control.
+
+Set `echonet.enabled` to `true` to prefer direct ECHONET Lite control for devices that can be matched automatically. AiSEG2 still
+provides the accessory names and remains the fallback path. Shutters and air purifiers are matched by EOJ after ECHONET discovery;
+HF-JA1/HF-JA2 door locks are matched automatically when exactly one endpoint is found. Use `echonet.doorLockHosts` only if multiple
+door lock endpoints exist. Startup and action logs show whether each accessory uses ECHONET Lite or AiSEG2.
+
+Direct shutter position control is used only when the ECHONET endpoint advertises the standard degree-of-opening property (`0xe1`).
+Some shutters expose timed movement (`0xd2`/`0xe9`) instead; the plugin does not treat that as exact percentage feedback and keeps
+AiSEG2 as the fallback for half-open commands.
 
 ## Future Development
 
