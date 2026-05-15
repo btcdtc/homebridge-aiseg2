@@ -8,41 +8,39 @@ void (async () => {
     constructor() {
       super();
 
-      this.onRequest('/door-locks', this.handleDoorLocks.bind(this));
-      this.onRequest('/ecocutes', this.handleEcocutes.bind(this));
+      this.deviceGroups = {
+        doorLocks: {
+          legacyKey: 'doorLocks',
+          label: 'door locks',
+          load: client => client.getDoorLockDevices(),
+        },
+        ecocutes: {
+          legacyKey: 'ecocutes',
+          label: 'EcoCute devices',
+          load: client => client.getEcocuteDevices(),
+        },
+      };
+
+      this.onRequest('/devices', this.handleDevices.bind(this));
+      this.onRequest('/door-locks', payload => this.handleLegacyDeviceGroup(payload, 'doorLocks'));
+      this.onRequest('/ecocutes', payload => this.handleLegacyDeviceGroup(payload, 'ecocutes'));
       this.onRequest('/webhook-token', this.handleWebhookToken.bind(this));
       this.onRequest('/local-address', this.handleLocalAddress.bind(this));
       this.ready();
     }
 
-    async handleDoorLocks(payload) {
-      try {
-        const devices = await this.discoverNamedDevices(payload, client => client.getDoorLockDevices(), 'door locks');
-        return {
-          doorLocks: devices.devices,
-          warning: devices.warning,
-        };
-      } catch (error) {
-        return {
-          doorLocks: [],
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
+    async handleDevices(payload) {
+      return this.discoverDeviceGroups(payload, this.requestedDeviceGroups(payload));
     }
 
-    async handleEcocutes(payload) {
-      try {
-        const devices = await this.discoverNamedDevices(payload, client => client.getEcocuteDevices(), 'EcoCute devices');
-        return {
-          ecocutes: devices.devices,
-          warning: devices.warning,
-        };
-      } catch (error) {
-        return {
-          ecocutes: [],
-          error: error instanceof Error ? error.message : String(error),
-        };
-      }
+    async handleLegacyDeviceGroup(payload, group) {
+      const key = this.deviceGroups[group].legacyKey;
+      const result = await this.discoverDeviceGroups(payload, [group]);
+      return {
+        [key]: result[group] || [],
+        warning: result.warnings && result.warnings[group],
+        error: result.errors && result.errors[group],
+      };
     }
 
     async handleWebhookToken(payload) {
@@ -63,13 +61,62 @@ void (async () => {
       } catch (error) {
         return {
           token: '',
-          error: error instanceof Error ? error.message : String(error),
+          error: this.formatError(error),
         };
       }
     }
 
     async handleLocalAddress() {
       return { address: this.localIpv4Address() || '' };
+    }
+
+    async discoverDeviceGroups(payload, groups) {
+      const config = payload && payload.config ? payload.config : {};
+      const client = await this.clientFromConfig(config);
+      const output = {
+        warnings: {},
+        errors: {},
+      };
+
+      if (!client) {
+        for (const group of groups) {
+          output[group] = [];
+          output.warnings[group] = `AiSEG2 host and password are required to discover ${this.deviceGroups[group].label}.`;
+        }
+        return output;
+      }
+
+      await Promise.all(groups.map(async group => {
+        try {
+          const devices = await this.deviceGroups[group].load(client);
+          output[group] = devices.map(device => ({
+            name: device.displayName,
+            nodeId: device.nodeId,
+            eoj: device.eoj,
+          }));
+        } catch (error) {
+          output[group] = [];
+          output.errors[group] = this.formatError(error);
+        }
+      }));
+
+      return output;
+    }
+
+    requestedDeviceGroups(payload) {
+      const groups = Array.isArray(payload && payload.groups)
+        ? payload.groups
+        : Object.keys(this.deviceGroups);
+
+      return groups.filter(group => Object.prototype.hasOwnProperty.call(this.deviceGroups, group));
+    }
+
+    async clientFromConfig(config) {
+      const { Aiseg2Client } = require('../dist/aiseg2Client');
+      const host = await this.resolveHost(config);
+      const password = String(config.password || '');
+
+      return host && password ? new Aiseg2Client(host, password) : undefined;
     }
 
     async resolveHost(config) {
@@ -87,30 +134,6 @@ void (async () => {
       return result.host;
     }
 
-    async discoverNamedDevices(payload, loader, label) {
-      const config = payload && payload.config ? payload.config : {};
-      const { Aiseg2Client } = require('../dist/aiseg2Client');
-      const host = await this.resolveHost(config);
-      const password = String(config.password || '');
-
-      if (!host || !password) {
-        return {
-          devices: [],
-          warning: `AiSEG2 host and password are required to discover ${label}.`,
-        };
-      }
-
-      const client = new Aiseg2Client(host, password);
-      const devices = await loader(client);
-      return {
-        devices: devices.map(device => ({
-          name: device.displayName,
-          nodeId: device.nodeId,
-          eoj: device.eoj,
-        })),
-      };
-    }
-
     normalizeToken(token) {
       return String(token || '').trim().replace(/^\/?api\/webhook\//u, '');
     }
@@ -125,6 +148,10 @@ void (async () => {
       }
 
       return undefined;
+    }
+
+    formatError(error) {
+      return error instanceof Error ? error.message : String(error);
     }
   }
 

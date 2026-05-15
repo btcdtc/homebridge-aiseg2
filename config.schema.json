@@ -181,7 +181,7 @@
             "description": "Logs when EcoCute would be started without sending the command."
           },
           "ecocuteName": {
-            "title": "EcoCute name",
+            "title": "EcoCute",
             "type": "string",
             "default": "",
             "description": "Optional AiSEG2 EcoCute display name. Leave empty only when exactly one EcoCute exists."

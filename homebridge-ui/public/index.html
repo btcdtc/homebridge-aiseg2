@@ -286,7 +286,7 @@
   <section class="aiseg2-section">
     <div class="aiseg2-heading">
       <h2>Webhook lock trigger</h2>
-      <button class="btn btn-outline-secondary btn-sm" id="refreshLocks" type="button">Refresh locks</button>
+      <button class="btn btn-outline-secondary btn-sm" id="refreshLocks" type="button">Refresh door locks</button>
     </div>
     <div class="aiseg2-grid">
       <div class="form-check align-self-end mb-2">
@@ -417,6 +417,123 @@
     },
   };
 
+  const CONFIG_FIELDS = [
+    { id: 'name', path: 'name', type: 'string', fallback: 'AiSEG2', emptyFallback: 'AiSEG2' },
+    { id: 'host', path: 'host', type: 'string' },
+    { id: 'password', path: 'password', type: 'string' },
+    { id: 'autodiscover', path: 'autodiscover', type: 'boolean' },
+    { id: 'groupAirPurifierSensors', path: 'groupAirPurifierSensors', type: 'boolean' },
+    { id: 'groupAirConditionerSensors', path: 'groupAirConditionerSensors', type: 'boolean' },
+    { id: 'groupAirEnvironmentSensors', path: 'groupAirEnvironmentSensors', type: 'boolean' },
+    { id: 'groupEcocuteServices', path: 'groupEcocuteServices', type: 'boolean' },
+    { id: 'exposeContactSensorLockState', path: 'exposeContactSensorLockState', type: 'boolean' },
+    { id: 'echonetDiscovery', path: 'echonetDiscovery', type: 'boolean' },
+    { id: 'echonetSubnets', path: 'echonetSubnets', type: 'string' },
+    { id: 'echonet-enabled', path: 'echonet.enabled', type: 'boolean' },
+    { id: 'echonet-subnets', path: 'echonet.subnets', type: 'string' },
+    { id: 'preferShutters', path: 'echonet.preferShutters', type: 'boolean' },
+    { id: 'preferDoorLocks', path: 'echonet.preferDoorLocks', type: 'boolean' },
+    { id: 'preferAirPurifiers', path: 'echonet.preferAirPurifiers', type: 'boolean' },
+    { id: 'preferEcocutes', path: 'echonet.preferEcocutes', type: 'boolean' },
+    { id: 'fallbackToAiseg', path: 'echonet.fallbackToAiseg', type: 'boolean' },
+    { id: 'doorLockHosts', path: 'echonet.doorLockHosts', type: 'jsonObject', fallback: {} },
+    { id: 'energy-enabled', path: 'energy.enabled', type: 'boolean' },
+    { id: 'exposeStatusSensors', path: 'energy.exposeStatusSensors', type: 'boolean' },
+    { id: 'solarSurplusWatts', path: 'energy.solarSurplusWatts', type: 'integer', fallback: 2500, min: 0, max: 100000 },
+    { id: 'batteryReadyPercent', path: 'energy.batteryReadyPercent', type: 'integer', fallback: 80, min: 0, max: 100 },
+    {
+      id: 'batteryDischargeThresholdWatts',
+      path: 'energy.batteryDischargeThresholdWatts',
+      type: 'integer',
+      fallback: 100,
+      min: 0,
+      max: 100000,
+    },
+    { id: 'ecocute-auto-enabled', path: 'ecocuteSolarAutomation.enabled', type: 'boolean' },
+    { id: 'ecocute-auto-dryRun', path: 'ecocuteSolarAutomation.dryRun', type: 'boolean' },
+    { id: 'ecocuteName', path: 'ecocuteSolarAutomation.ecocuteName', type: 'string' },
+    { id: 'allowedStartTime', path: 'ecocuteSolarAutomation.allowedStartTime', type: 'string', fallback: '09:30' },
+    { id: 'allowedEndTime', path: 'ecocuteSolarAutomation.allowedEndTime', type: 'string', fallback: '14:30' },
+    { id: 'minSolarWatts', path: 'ecocuteSolarAutomation.minSolarWatts', type: 'integer', fallback: 2500, min: 0, max: 100000 },
+    { id: 'minBatteryPercent', path: 'ecocuteSolarAutomation.minBatteryPercent', type: 'integer', fallback: 80, min: 0, max: 100 },
+    { id: 'requireBatteryNotDischarging', path: 'ecocuteSolarAutomation.requireBatteryNotDischarging', type: 'boolean' },
+    {
+      id: 'minBatteryChargeWatts',
+      path: 'ecocuteSolarAutomation.minBatteryChargeWatts',
+      type: 'integer',
+      fallback: 0,
+      min: 0,
+      max: 100000,
+    },
+    { id: 'oncePerDay', path: 'ecocuteSolarAutomation.oncePerDay', type: 'boolean' },
+    { id: 'cooldownHours', path: 'ecocuteSolarAutomation.cooldownHours', type: 'integer', fallback: 18, min: 0, max: 168 },
+    {
+      id: 'checkIntervalSeconds',
+      path: 'ecocuteSolarAutomation.checkIntervalSeconds',
+      type: 'integer',
+      fallback: 300,
+      min: 60,
+      max: 3600,
+    },
+    { id: 'weatherEnabled', path: 'ecocuteSolarAutomation.weatherEnabled', type: 'boolean' },
+    { id: 'latitude', path: 'ecocuteSolarAutomation.latitude', type: 'number', fallback: 0, min: -90, max: 90, requires: 'weatherEnabled' },
+    { id: 'longitude', path: 'ecocuteSolarAutomation.longitude', type: 'number', fallback: 0, min: -180, max: 180, requires: 'weatherEnabled' },
+    { id: 'forecastHours', path: 'ecocuteSolarAutomation.forecastHours', type: 'integer', fallback: 3, min: 1, max: 12, requires: 'weatherEnabled' },
+    {
+      id: 'minForecastRadiationWatts',
+      path: 'ecocuteSolarAutomation.minForecastRadiationWatts',
+      type: 'integer',
+      fallback: 350,
+      min: 0,
+      max: 1200,
+      requires: 'weatherEnabled',
+    },
+    {
+      id: 'maxForecastCloudCover',
+      path: 'ecocuteSolarAutomation.maxForecastCloudCover',
+      type: 'integer',
+      fallback: 85,
+      min: 0,
+      max: 100,
+      requires: 'weatherEnabled',
+    },
+    {
+      id: 'maxForecastPrecipitationProbability',
+      path: 'ecocuteSolarAutomation.maxForecastPrecipitationProbability',
+      type: 'integer',
+      fallback: 70,
+      min: 0,
+      max: 100,
+      requires: 'weatherEnabled',
+    },
+    { id: 'webhook-enabled', path: 'webhook.enabled', type: 'boolean' },
+    { id: 'webhook-method', path: 'webhook.method', type: 'string', normalize: normalizeMethod },
+    { id: 'webhook-action', path: 'webhook.action', type: 'string', normalize: normalizeAction },
+    { id: 'doorLockName', path: 'webhook.doorLockName', type: 'string' },
+    { id: 'webhook-port', path: 'webhook.port', type: 'integer', fallback: 18582, min: 1, max: 65535 },
+    { id: 'webhook-bind', path: 'webhook.bind', type: 'string', fallback: '0.0.0.0', emptyFallback: '0.0.0.0' },
+    { id: 'publicHost', path: 'webhook.publicHost', type: 'string' },
+    { id: 'cooldownSeconds', path: 'webhook.cooldownSeconds', type: 'integer', fallback: 5, min: 0, max: 3600 },
+    { id: 'webhook-token', path: 'webhook.token', type: 'string', normalize: normalizeToken },
+  ];
+
+  const DEVICE_SELECTS = [
+    {
+      group: 'doorLocks',
+      selectId: 'doorLockName',
+      buttonId: 'refreshLocks',
+      emptyLabel: 'Auto (single door lock)',
+      title: 'Door lock discovery',
+    },
+    {
+      group: 'ecocutes',
+      selectId: 'ecocuteName',
+      buttonId: 'refreshEcocutes',
+      emptyLabel: 'Auto (single EcoCute)',
+      title: 'EcoCute discovery',
+    },
+  ];
+
   let config = clone(DEFAULT_CONFIG);
   let pluginConfig = [];
   let updateTimer;
@@ -456,24 +573,6 @@
     $(id).checked = Boolean(nextValue);
   }
 
-  function numberValue(id, fallback, min, max) {
-    const parsed = Number(value(id));
-    if (!Number.isFinite(parsed)) {
-      return fallback;
-    }
-
-    return Math.max(min, Math.min(max, Math.trunc(parsed)));
-  }
-
-  function floatValue(id, fallback, min, max) {
-    const parsed = Number(value(id));
-    if (!Number.isFinite(parsed)) {
-      return fallback;
-    }
-
-    return Math.max(min, Math.min(max, parsed));
-  }
-
   function normalizeMethod(method) {
     return ['post', 'get', 'any'].includes(method) ? method : 'post';
   }
@@ -482,139 +581,103 @@
     return action === 'toggle' ? 'toggle' : 'unlock';
   }
 
-  function parseDoorLockHosts() {
-    const raw = value('doorLockHosts');
-    if (!raw) {
-      return {};
-    }
-
-    try {
-      const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-    } catch {
-      return {};
-    }
-  }
-
   function populateForm() {
-    setValue('name', config.name);
-    setValue('host', config.host);
-    setValue('password', config.password);
-    setChecked('autodiscover', config.autodiscover);
-    setChecked('groupAirPurifierSensors', config.groupAirPurifierSensors);
-    setChecked('groupAirConditionerSensors', config.groupAirConditionerSensors);
-    setChecked('groupAirEnvironmentSensors', config.groupAirEnvironmentSensors);
-    setChecked('groupEcocuteServices', config.groupEcocuteServices);
-    setChecked('exposeContactSensorLockState', config.exposeContactSensorLockState);
-    setChecked('echonetDiscovery', config.echonetDiscovery);
-    setValue('echonetSubnets', config.echonetSubnets);
-    setChecked('echonet-enabled', config.echonet.enabled);
-    setValue('echonet-subnets', config.echonet.subnets);
-    setChecked('preferShutters', config.echonet.preferShutters);
-    setChecked('preferDoorLocks', config.echonet.preferDoorLocks);
-    setChecked('preferAirPurifiers', config.echonet.preferAirPurifiers);
-    setChecked('preferEcocutes', config.echonet.preferEcocutes);
-    setChecked('fallbackToAiseg', config.echonet.fallbackToAiseg);
-    setValue('doorLockHosts', JSON.stringify(config.echonet.doorLockHosts || {}, null, 2));
-    setChecked('energy-enabled', config.energy.enabled);
-    setChecked('exposeStatusSensors', config.energy.exposeStatusSensors);
-    setValue('solarSurplusWatts', config.energy.solarSurplusWatts);
-    setValue('batteryReadyPercent', config.energy.batteryReadyPercent);
-    setValue('batteryDischargeThresholdWatts', config.energy.batteryDischargeThresholdWatts);
-    setChecked('ecocute-auto-enabled', config.ecocuteSolarAutomation.enabled);
-    setChecked('ecocute-auto-dryRun', config.ecocuteSolarAutomation.dryRun);
-    setValue('ecocuteName', config.ecocuteSolarAutomation.ecocuteName);
-    setValue('allowedStartTime', config.ecocuteSolarAutomation.allowedStartTime);
-    setValue('allowedEndTime', config.ecocuteSolarAutomation.allowedEndTime);
-    setValue('minSolarWatts', config.ecocuteSolarAutomation.minSolarWatts);
-    setValue('minBatteryPercent', config.ecocuteSolarAutomation.minBatteryPercent);
-    setChecked('requireBatteryNotDischarging', config.ecocuteSolarAutomation.requireBatteryNotDischarging);
-    setValue('minBatteryChargeWatts', config.ecocuteSolarAutomation.minBatteryChargeWatts);
-    setChecked('oncePerDay', config.ecocuteSolarAutomation.oncePerDay);
-    setValue('cooldownHours', config.ecocuteSolarAutomation.cooldownHours);
-    setValue('checkIntervalSeconds', config.ecocuteSolarAutomation.checkIntervalSeconds);
-    setChecked('weatherEnabled', config.ecocuteSolarAutomation.weatherEnabled);
-    setValue('latitude', config.ecocuteSolarAutomation.latitude);
-    setValue('longitude', config.ecocuteSolarAutomation.longitude);
-    setValue('forecastHours', config.ecocuteSolarAutomation.forecastHours);
-    setValue('minForecastRadiationWatts', config.ecocuteSolarAutomation.minForecastRadiationWatts);
-    setValue('maxForecastCloudCover', config.ecocuteSolarAutomation.maxForecastCloudCover);
-    setValue('maxForecastPrecipitationProbability', config.ecocuteSolarAutomation.maxForecastPrecipitationProbability);
-    setChecked('webhook-enabled', config.webhook.enabled);
-    setValue('webhook-method', normalizeMethod(config.webhook.method));
-    setValue('webhook-action', normalizeAction(config.webhook.action));
-    setValue('webhook-port', config.webhook.port);
-    setValue('webhook-bind', config.webhook.bind);
-    setValue('publicHost', config.webhook.publicHost);
-    setValue('cooldownSeconds', config.webhook.cooldownSeconds);
-    setValue('webhook-token', normalizeToken(config.webhook.token));
-    setValue('doorLockName', config.webhook.doorLockName);
+    for (const field of CONFIG_FIELDS) {
+      writeFieldToElement(field, getPath(config, field.path));
+    }
     updateWebhookUrl();
+    updateDependentFields();
   }
 
   function gatherConfig() {
     const nextConfig = mergeDefaults(DEFAULT_CONFIG, config);
-    nextConfig.name = value('name') || 'AiSEG2';
     nextConfig.platform = 'AiSEG2';
-    nextConfig.autodiscover = checked('autodiscover');
-    nextConfig.host = value('host');
-    nextConfig.password = value('password');
-    nextConfig.groupAirPurifierSensors = checked('groupAirPurifierSensors');
-    nextConfig.groupAirConditionerSensors = checked('groupAirConditionerSensors');
-    nextConfig.groupAirEnvironmentSensors = checked('groupAirEnvironmentSensors');
-    nextConfig.groupEcocuteServices = checked('groupEcocuteServices');
-    nextConfig.exposeContactSensorLockState = checked('exposeContactSensorLockState');
-    nextConfig.echonetDiscovery = checked('echonetDiscovery');
-    nextConfig.echonetSubnets = value('echonetSubnets');
-    nextConfig.echonet.enabled = checked('echonet-enabled');
-    nextConfig.echonet.subnets = value('echonet-subnets');
-    nextConfig.echonet.preferShutters = checked('preferShutters');
-    nextConfig.echonet.preferDoorLocks = checked('preferDoorLocks');
-    nextConfig.echonet.preferAirPurifiers = checked('preferAirPurifiers');
-    nextConfig.echonet.preferEcocutes = checked('preferEcocutes');
-    nextConfig.echonet.fallbackToAiseg = checked('fallbackToAiseg');
-    nextConfig.echonet.doorLockHosts = parseDoorLockHosts();
-    nextConfig.energy.enabled = checked('energy-enabled');
-    nextConfig.energy.exposeStatusSensors = checked('exposeStatusSensors');
-    nextConfig.energy.solarSurplusWatts = numberValue('solarSurplusWatts', 2500, 0, 100000);
-    nextConfig.energy.batteryReadyPercent = numberValue('batteryReadyPercent', 80, 0, 100);
-    nextConfig.energy.batteryDischargeThresholdWatts = numberValue('batteryDischargeThresholdWatts', 100, 0, 100000);
-    nextConfig.ecocuteSolarAutomation.enabled = checked('ecocute-auto-enabled');
-    nextConfig.ecocuteSolarAutomation.dryRun = checked('ecocute-auto-dryRun');
-    nextConfig.ecocuteSolarAutomation.ecocuteName = value('ecocuteName');
-    nextConfig.ecocuteSolarAutomation.allowedStartTime = value('allowedStartTime') || '09:30';
-    nextConfig.ecocuteSolarAutomation.allowedEndTime = value('allowedEndTime') || '14:30';
-    nextConfig.ecocuteSolarAutomation.minSolarWatts = numberValue('minSolarWatts', 2500, 0, 100000);
-    nextConfig.ecocuteSolarAutomation.minBatteryPercent = numberValue('minBatteryPercent', 80, 0, 100);
-    nextConfig.ecocuteSolarAutomation.requireBatteryNotDischarging = checked('requireBatteryNotDischarging');
-    nextConfig.ecocuteSolarAutomation.minBatteryChargeWatts = numberValue('minBatteryChargeWatts', 0, 0, 100000);
-    nextConfig.ecocuteSolarAutomation.oncePerDay = checked('oncePerDay');
-    nextConfig.ecocuteSolarAutomation.cooldownHours = numberValue('cooldownHours', 18, 0, 168);
-    nextConfig.ecocuteSolarAutomation.checkIntervalSeconds = numberValue('checkIntervalSeconds', 300, 60, 3600);
-    nextConfig.ecocuteSolarAutomation.weatherEnabled = checked('weatherEnabled');
-    nextConfig.ecocuteSolarAutomation.latitude = floatValue('latitude', 0, -90, 90);
-    nextConfig.ecocuteSolarAutomation.longitude = floatValue('longitude', 0, -180, 180);
-    nextConfig.ecocuteSolarAutomation.forecastHours = numberValue('forecastHours', 3, 1, 12);
-    nextConfig.ecocuteSolarAutomation.minForecastRadiationWatts =
-      numberValue('minForecastRadiationWatts', 350, 0, 1200);
-    nextConfig.ecocuteSolarAutomation.maxForecastCloudCover = numberValue('maxForecastCloudCover', 85, 0, 100);
-    nextConfig.ecocuteSolarAutomation.maxForecastPrecipitationProbability =
-      numberValue('maxForecastPrecipitationProbability', 70, 0, 100);
-    nextConfig.webhook.enabled = checked('webhook-enabled');
-    nextConfig.webhook.method = normalizeMethod(value('webhook-method'));
-    nextConfig.webhook.action = normalizeAction(value('webhook-action'));
-    nextConfig.webhook.port = numberValue('webhook-port', 18582, 1, 65535);
-    nextConfig.webhook.bind = value('webhook-bind') || '0.0.0.0';
-    nextConfig.webhook.publicHost = value('publicHost');
-    nextConfig.webhook.token = normalizeToken(value('webhook-token'));
-    nextConfig.webhook.doorLockName = value('doorLockName');
-    nextConfig.webhook.cooldownSeconds = numberValue('cooldownSeconds', 5, 0, 3600);
+    for (const field of CONFIG_FIELDS) {
+      setPath(nextConfig, field.path, readFieldFromElement(field));
+    }
     config = nextConfig;
     return nextConfig;
   }
 
+  function writeFieldToElement(field, rawValue) {
+    const nextValue = field.normalize ? field.normalize(rawValue) : rawValue;
+    if (field.type === 'boolean') {
+      setChecked(field.id, nextValue);
+      return;
+    }
+
+    if (field.type === 'jsonObject') {
+      setValue(field.id, JSON.stringify(nextValue || field.fallback || {}, null, 2));
+      return;
+    }
+
+    setValue(field.id, nextValue === undefined || nextValue === null ? field.fallback : nextValue);
+  }
+
+  function readFieldFromElement(field) {
+    let nextValue;
+    switch (field.type) {
+      case 'boolean':
+        nextValue = checked(field.id);
+        break;
+      case 'integer':
+        nextValue = boundedNumber(value(field.id), field.fallback, field.min, field.max, true);
+        break;
+      case 'number':
+        nextValue = boundedNumber(value(field.id), field.fallback, field.min, field.max, false);
+        break;
+      case 'jsonObject':
+        nextValue = jsonObjectValue(field.id, field.fallback || {});
+        break;
+      default:
+        nextValue = value(field.id) || field.emptyFallback || field.fallback || '';
+        break;
+    }
+
+    return field.normalize ? field.normalize(nextValue) : nextValue;
+  }
+
+  function boundedNumber(rawValue, fallback, min, max, integer) {
+    const parsed = Number(rawValue);
+    if (!Number.isFinite(parsed)) {
+      return fallback;
+    }
+
+    const bounded = Math.max(min, Math.min(max, parsed));
+    return integer ? Math.trunc(bounded) : bounded;
+  }
+
+  function jsonObjectValue(id, fallback) {
+    const raw = value(id);
+    if (!raw) {
+      return fallback;
+    }
+
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : fallback;
+    } catch {
+      return fallback;
+    }
+  }
+
+  function getPath(source, path) {
+    return path.split('.').reduce((current, key) => current && current[key], source);
+  }
+
+  function setPath(target, path, nextValue) {
+    const keys = path.split('.');
+    let current = target;
+    keys.slice(0, -1).forEach(key => {
+      current[key] = current[key] || {};
+      current = current[key];
+    });
+    current[keys[keys.length - 1]] = nextValue;
+  }
+
   function scheduleConfigUpdate() {
     updateWebhookUrl();
+    updateDependentFields();
     clearTimeout(updateTimer);
     updateTimer = setTimeout(async () => {
       try {
@@ -626,9 +689,15 @@
     }, 250);
   }
 
+  function updateDependentFields() {
+    for (const field of CONFIG_FIELDS.filter(entry => entry.requires)) {
+      $(field.id).disabled = !checked(field.requires);
+    }
+  }
+
   function updateWebhookUrl() {
     const host = value('publicHost') || window.location.hostname || localAddress || '127.0.0.1';
-    const port = numberValue('webhook-port', 18582, 1, 65535);
+    const port = boundedNumber(value('webhook-port'), 18582, 1, 65535, true);
     const token = normalizeToken(value('webhook-token'));
     const method = normalizeMethod(value('webhook-method')).toUpperCase();
     const url = token ? `http://${host}:${port}/api/webhook/${token}` : '';
@@ -638,63 +707,65 @@
       : 'Generate a token to produce the complete webhook URL.';
   }
 
-  async function refreshDoorLocks() {
-    await refreshDeviceSelect({
-      endpoint: '/door-locks',
-      responseKey: 'doorLocks',
-      selectId: 'doorLockName',
-      buttonId: 'refreshLocks',
-      emptyLabel: 'Auto (single door lock)',
-      title: 'Door lock discovery',
-    });
+  async function refreshDeviceSelect(group) {
+    await refreshDeviceSelects([deviceSelect(group)]);
   }
 
-  async function refreshEcocutes() {
-    await refreshDeviceSelect({
-      endpoint: '/ecocutes',
-      responseKey: 'ecocutes',
-      selectId: 'ecocuteName',
-      buttonId: 'refreshEcocutes',
-      emptyLabel: 'Auto (single EcoCute)',
-      title: 'EcoCute discovery',
-    });
-  }
-
-  async function refreshDeviceSelect({ endpoint, responseKey, selectId, buttonId, emptyLabel, title }) {
+  async function refreshDeviceSelects(selects = DEVICE_SELECTS) {
     const current = gatherConfig();
-    $(buttonId).disabled = true;
+    const groups = selects.map(select => select.group);
+    setDeviceSelectsDisabled(selects, true);
     try {
-      const result = await homebridge.request(endpoint, { config: current });
-      const existing = value(selectId);
-      const select = $(selectId);
-      select.innerHTML = '';
-      const autoOption = document.createElement('option');
-      autoOption.value = '';
-      autoOption.textContent = emptyLabel;
-      select.appendChild(autoOption);
-      for (const device of result[responseKey] || []) {
-        const option = document.createElement('option');
-        option.value = device.name;
-        option.textContent = device.name;
-        select.appendChild(option);
-      }
-      if (existing && ![...select.options].some(option => option.value === existing)) {
-        const option = document.createElement('option');
-        option.value = existing;
-        option.textContent = `${existing} (configured)`;
-        select.appendChild(option);
-      }
-      setValue(selectId, existing);
-      if (result.error) {
-        homebridge.toast.warning(result.error, title);
-      } else if (result.warning) {
-        homebridge.toast.info(result.warning, title);
+      const result = await homebridge.request('/devices', { config: current, groups });
+      for (const select of selects) {
+        populateDeviceSelect(select, result);
       }
     } catch (error) {
-      homebridge.toast.error(error.message || String(error), title);
+      for (const select of selects) {
+        homebridge.toast.error(error.message || String(error), select.title);
+      }
     } finally {
-      $(buttonId).disabled = false;
+      setDeviceSelectsDisabled(selects, false);
     }
+  }
+
+  function populateDeviceSelect(selectConfig, result) {
+    const existing = value(selectConfig.selectId);
+    const select = $(selectConfig.selectId);
+    select.innerHTML = '';
+    addOption(select, '', selectConfig.emptyLabel);
+
+    for (const device of result[selectConfig.group] || []) {
+      addOption(select, device.name, device.name);
+    }
+
+    if (existing && ![...select.options].some(option => option.value === existing)) {
+      addOption(select, existing, `${existing} (configured)`);
+    }
+
+    setValue(selectConfig.selectId, existing);
+    if (result.errors && result.errors[selectConfig.group]) {
+      homebridge.toast.warning(result.errors[selectConfig.group], selectConfig.title);
+    } else if (result.warnings && result.warnings[selectConfig.group]) {
+      homebridge.toast.info(result.warnings[selectConfig.group], selectConfig.title);
+    }
+  }
+
+  function setDeviceSelectsDisabled(selects, disabled) {
+    for (const select of selects) {
+      $(select.buttonId).disabled = disabled;
+    }
+  }
+
+  function deviceSelect(group) {
+    return DEVICE_SELECTS.find(select => select.group === group);
+  }
+
+  function addOption(select, optionValue, label) {
+    const option = document.createElement('option');
+    option.value = optionValue;
+    option.textContent = label;
+    select.appendChild(option);
   }
 
   function normalizeToken(token) {
@@ -743,10 +814,7 @@
       localAddress = addressResult.value.address || '';
     }
     populateForm();
-    await Promise.allSettled([
-      refreshDoorLocks(),
-      refreshEcocutes(),
-    ]);
+    await refreshDeviceSelects();
   }
 
   function bindEvents() {
@@ -761,8 +829,8 @@
       homebridge.toast.info('Token generated. Save settings to apply it.');
     });
     $('copyUrl').addEventListener('click', copyUrl);
-    $('refreshLocks').addEventListener('click', refreshDoorLocks);
-    $('refreshEcocutes').addEventListener('click', refreshEcocutes);
+    $('refreshLocks').addEventListener('click', () => refreshDeviceSelect('doorLocks'));
+    $('refreshEcocutes').addEventListener('click', () => refreshDeviceSelect('ecocutes'));
   }
 
   window.homebridge.addEventListener('ready', async () => {
