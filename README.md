@@ -39,6 +39,8 @@ write the discovered address back to `config.json`, and a configured `host` alwa
         "groupAirConditionerSensors": true,
         "groupAirEnvironmentSensors": true,
         "exposeContactSensorLockState": false,
+        "echonetDiscovery": false,
+        "echonetSubnets": "",
         "platform": "AiSEG2"
     }]
 
@@ -55,6 +57,10 @@ a separate mode switch.
 
 Set `exposeContactSensorLockState` to `true` to add a read-only Contact Sensor service to window lock sensors that report
 `lockVal`. Locked is reported as contact detected, and unlocked is reported as contact not detected.
+
+Set `echonetDiscovery` to `true` to log ECHONET Lite devices visible from the Homebridge host. Leave `echonetSubnets` empty to scan
+the host's current local IPv4 subnets, or set a comma-separated list such as `192.168.20.0/24` for routed device networks. ECHONET
+Lite discovery is diagnostic only in this version; it does not change the AiSEG2 control path.
 
 ## Future Development
 

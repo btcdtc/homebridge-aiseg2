@@ -13,6 +13,7 @@ import {
 
 import { PLATFORM_NAME, PLUGIN_NAME, PLUGIN_VERSION } from './settings';
 import { discoverAiseg2Controller, localDiscoverySubnets } from './aiseg2Discovery';
+import { discoverEchonetLiteNodes, localEchonetLiteSubnets } from './echonetLiteDiscovery';
 import { AirConditionerAccessory } from './airConditionerAccessory';
 import { AirEnvironmentSensorAccessory } from './airEnvironmentSensorAccessory';
 import { AirPurifierAccessory } from './airPurifierAccessory';
@@ -64,6 +65,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   // Discover the various AiSEG2 device types that are compatible with Homekit
   async discoverDevices(): Promise<void> {
     await this.resolveClient();
+    await this.discoverEchonetLiteDevices();
     this.discoveredAccessoryUUIDs = new Set<string>();
     await this.discoverLighting();
     await this.discoverContactSensors();
@@ -316,6 +318,10 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     return this.configBoolean('exposeContactSensorLockState', false);
   }
 
+  public get echonetDiscovery(): boolean {
+    return this.configBoolean('echonetDiscovery', false);
+  }
+
   public configureGroupedService(primaryService: Service, linkedServices: Service[], enabled: boolean): void {
     primaryService.setPrimaryService(enabled);
     for (const linkedService of linkedServices) {
@@ -386,6 +392,58 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     this.client = new Aiseg2Client(result.host, this.password);
   }
 
+  private async discoverEchonetLiteDevices(): Promise<void> {
+    if (!this.echonetDiscovery) {
+      return;
+    }
+
+    const configuredSubnets = this.configuredEchonetSubnets;
+    const targetDescription = configuredSubnets.length > 0
+      ? configuredSubnets.join(', ')
+      : localEchonetLiteSubnets().join(', ') || 'none';
+
+    this.log.info(`Discovering ECHONET Lite devices on ${targetDescription}`);
+
+    try {
+      const nodes = await discoverEchonetLiteNodes({
+        subnets: configuredSubnets,
+      });
+
+      if (nodes.length === 0) {
+        this.log.info('No ECHONET Lite devices responded to discovery');
+        return;
+      }
+
+      for (const node of nodes) {
+        for (const object of node.objects) {
+          const details = [
+            object.manufacturerName || object.manufacturerCode,
+            object.productCode,
+            object.operationStatus
+              ? `operation=${object.operationStatus}${object.operationStatusRaw ? ` (${object.operationStatusRaw})` : ''}`
+              : object.operationStatusRaw ? `operation=${object.operationStatusRaw}` : undefined,
+            object.faultStatus ? `fault=${object.faultStatus}` : undefined,
+            object.configurationUrl ? `url=${object.configurationUrl}` : undefined,
+          ].filter(Boolean);
+
+          this.log.info(
+            `Discovered ECHONET Lite ${object.className} ${object.eoj} at ${node.host}` +
+            (details.length > 0 ? ` (${details.join(', ')})` : ''),
+          );
+
+          if (object.classCode === '0x05fd') {
+            this.log.info(
+              `ECHONET Lite JEM-A/HA switch at ${node.host} exposes set=[${(object.setProperties || []).join(', ')}] ` +
+              `get=[${(object.getProperties || []).join(', ')}] notify=[${(object.notificationProperties || []).join(', ')}]`,
+            );
+          }
+        }
+      }
+    } catch (error) {
+      this.log.warn(`ECHONET Lite discovery failed: ${this.formatError(error)}`);
+    }
+  }
+
   private markDeviceSeen(device: SupportedDevice): string {
     const uuid = this.api.hap.uuid.generate(device.uuidSeed);
     this.discoveredAccessoryUUIDs.add(uuid);
@@ -433,6 +491,18 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
 
   private get autodiscover(): boolean {
     return this.configBoolean('autodiscover', false);
+  }
+
+  private get configuredEchonetSubnets(): string[] {
+    const value = this.config.echonetSubnets;
+    if (Array.isArray(value)) {
+      return value.map(entry => String(entry).trim()).filter(Boolean);
+    }
+
+    return String(value || '')
+      .split(/[\s,]+/)
+      .map(entry => entry.trim())
+      .filter(Boolean);
   }
 
   public formatHomeKitName(name: string): string {

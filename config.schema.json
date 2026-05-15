@@ -54,6 +54,19 @@
         "type": "boolean",
         "default": false,
         "description": "Adds a read-only Contact Sensor service to window lock sensors when AiSEG2 reports lock state data."
+      },
+      "echonetDiscovery": {
+        "title": "ECHONET Lite discovery",
+        "type": "boolean",
+        "default": false,
+        "description": "Logs ECHONET Lite devices found by multicast and unicast probing. This is diagnostic only and does not change AiSEG2 control behavior."
+      },
+      "echonetSubnets": {
+        "title": "ECHONET Lite discovery subnets",
+        "type": "string",
+        "required": false,
+        "default": "",
+        "description": "Optional comma-separated /24 to /32 IPv4 targets for ECHONET Lite discovery, for example 192.168.20.0/24. Leave empty to scan the Homebridge host's current local IPv4 subnets."
       }
     }
   }
