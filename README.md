@@ -32,6 +32,9 @@ To configure the plugin, supply the password used to login to the AiSEG2 web int
 leave `host` empty with `autodiscover` enabled to scan the Homebridge host's current local IPv4 subnets. Auto discovery does not
 write the discovered address back to `config.json`, and a configured `host` always takes precedence.
 
+The custom Homebridge settings UI uses friendlier names than the raw config keys below. The keys are kept stable so existing
+installations can upgrade without rewriting `config.json`.
+
     "platforms": [{
         "name": "AiSEG2",
         "autodiscover": false,
@@ -96,9 +99,9 @@ write the discovered address back to `config.json`, and a configured `host` alwa
 Auto discovery is intentionally local-only: it scans private IPv4 addresses on the Homebridge machine's active non-Docker
 interfaces and does not use mDNS or cross-VLAN routing.
 
-Grouping options use HomeKit primary/linked services so related measurements stay associated with the same accessory. Air purifiers
-link odor, PM2.5, house dust, and AirMe/Eco mode switches to the purifier service. Air conditioners link indoor humidity, outdoor
-temperature, fan, humidity, and extra mode services to the heater cooler service. Air environment sensors link humidity to the
+Apple Home layout options use HomeKit primary/linked services so related measurements stay associated with the same accessory. Air
+purifiers link odor, PM2.5, house dust, and AirMe/Eco mode switches to the purifier service. Air conditioners link indoor humidity,
+outdoor temperature, fan, humidity, and extra mode services to the heater cooler service. Air environment sensors link humidity to the
 paired temperature service. EcoCute devices link automatic bath and temperature services to the manual water-heating switch.
 
 For air purifiers with AirMe/Eco automatic modes, HomeKit's generic Auto target maps to AirMe by default. Eco remains available as
@@ -108,10 +111,10 @@ Set `exposeContactSensorLockState` to `true` to add a read-only Contact Sensor s
 `lockVal`. Locked is reported as contact detected, and unlocked is reported as contact not detected.
 
 Set `echonetDiscovery` to `true` to log ECHONET Lite devices visible from the Homebridge host. Leave `echonetSubnets` empty to scan
-the host's current local IPv4 subnets, or set a comma-separated list such as `192.168.20.0/24` for routed device networks. This
-top-level discovery option is diagnostic; `echonet.enabled` below also runs discovery and uses matched endpoints for direct control.
+the host's current local IPv4 subnets, or set a comma-separated list such as `192.168.20.0/24` for routed device networks. This is a
+diagnostic scan only; `echonet.enabled` below also runs discovery and uses matched endpoints for direct control.
 
-Set `echonet.enabled` to `true` to prefer direct ECHONET Lite control for devices that can be matched automatically. AiSEG2 still
+Set `echonet.enabled` to `true` to use direct ECHONET Lite control for devices that can be matched automatically. AiSEG2 still
 provides the accessory names. Shutters, air purifiers, and EcoCute devices are matched by EOJ after ECHONET discovery; HF-JA1/HF-JA2
 door locks are matched automatically when exactly one endpoint is found. Manual `echonet.doorLockHosts` overrides are only for rare
 ambiguous HF-JA installs and are intentionally hidden from the normal settings UI. Startup and action logs show whether each accessory

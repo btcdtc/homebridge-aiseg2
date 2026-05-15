@@ -7,112 +7,112 @@
     "type": "object",
     "properties": {
       "name": {
-        "title": "Name",
+        "title": "Bridge name",
         "type": "string",
         "required": true,
         "default": "AiSEG2"
       },
       "autodiscover": {
-        "title": "Auto discover AiSEG2 controllers",
+        "title": "Find controller automatically",
         "type": "boolean",
         "default": false,
-        "description": "Scans the Homebridge host's current local IPv4 subnets when Host is empty. A configured Host always takes precedence."
+        "description": "Scans the Homebridge host's current local IPv4 subnets when Controller address is empty. A configured address always takes precedence."
       },
       "host": {
-        "title": "Hostname or IP",
+        "title": "Controller address",
         "type": "string",
         "required": false,
         "default": "",
-        "description": "The hostname or IP address of the Panasonic AiSEG2 controller. Leave empty to use auto discovery."
+        "description": "Fixed AiSEG2 IP address or hostname. Leave empty to use local discovery."
       },
       "password": {
-        "title": "Password",
+        "title": "Controller password",
         "type": "string",
         "required": true,
         "default": "",
         "description": "Password used to login to the Panasonic AiSEG2 controller"
       },
       "groupAirPurifierSensors": {
-        "title": "Group air purifier sensors",
+        "title": "Attach air purifier sensors to purifier",
         "type": "boolean",
         "default": true,
         "description": "Marks each air purifier as the primary HomeKit service and links its air quality sensors and mode switches to it."
       },
       "groupAirConditionerSensors": {
-        "title": "Group air conditioner sensors",
+        "title": "Attach air conditioner sensors to AC",
         "type": "boolean",
         "default": true,
         "description": "Marks each air conditioner as the primary HomeKit service and links its indoor humidity, outdoor temperature, fan, humidity, and extra mode services to it."
       },
       "groupAirEnvironmentSensors": {
-        "title": "Group air environment sensors",
+        "title": "Pair temperature and humidity sensors",
         "type": "boolean",
         "default": true,
         "description": "Marks each temperature service as the primary HomeKit service and links its paired humidity sensor to it."
       },
       "groupEcocuteServices": {
-        "title": "Group EcoCute services",
+        "title": "Attach EcoCute services to water heater",
         "type": "boolean",
         "default": true,
         "description": "Marks the manual water-heating switch as the primary HomeKit service and links automatic bath and temperature services to it."
       },
       "exposeContactSensorLockState": {
-        "title": "Expose contact sensor lock state",
+        "title": "Show window lock state sensors",
         "type": "boolean",
         "default": false,
         "description": "Adds a read-only Contact Sensor service to window lock sensors when AiSEG2 reports lock state data."
       },
       "echonetDiscovery": {
-        "title": "ECHONET Lite discovery",
+        "title": "Log discovered ECHONET devices",
         "type": "boolean",
         "default": false,
         "description": "Logs ECHONET Lite devices found by multicast and unicast probing. This is diagnostic only and does not change AiSEG2 control behavior."
       },
       "echonetSubnets": {
-        "title": "ECHONET Lite discovery subnets",
+        "title": "Diagnostic scan targets",
         "type": "string",
         "required": false,
         "default": "",
         "description": "Optional comma-separated /24 to /32 IPv4 targets for ECHONET Lite discovery, for example 192.168.20.0/24. Leave empty to scan the Homebridge host's current local IPv4 subnets."
       },
       "echonet": {
-        "title": "ECHONET Lite direct control",
+        "title": "Direct ECHONET Lite control",
         "type": "object",
         "properties": {
           "enabled": {
-            "title": "Enable ECHONET Lite direct control",
+            "title": "Use direct control when available",
             "type": "boolean",
             "default": false,
             "description": "Enables direct ECHONET Lite status/control for automatically matched shutters, door locks, air purifiers, and EcoCute devices. AiSEG2 remains the discovery source."
           },
           "subnets": {
-            "title": "ECHONET Lite subnets",
+            "title": "Device scan targets",
             "type": "string",
             "default": "",
             "description": "Optional comma-separated /24 to /32 IPv4 targets, for example 192.168.20.0/24. Leave empty to scan the Homebridge host's current local IPv4 subnets."
           },
           "preferShutters": {
-            "title": "Prefer ECHONET Lite for shutters",
+            "title": "Use direct control for shutters",
             "type": "boolean",
             "default": true
           },
           "preferDoorLocks": {
-            "title": "Prefer ECHONET Lite for door locks",
+            "title": "Use direct control for door locks",
             "type": "boolean",
             "default": true
           },
           "preferAirPurifiers": {
-            "title": "Prefer ECHONET Lite for air purifiers",
+            "title": "Use direct control for air purifiers",
             "type": "boolean",
             "default": true
           },
           "preferEcocutes": {
-            "title": "Prefer ECHONET Lite for EcoCute devices",
+            "title": "Use direct control for EcoCute",
             "type": "boolean",
             "default": true
           },
           "fallbackToAiseg": {
-            "title": "Fallback to AiSEG2 when ECHONET Lite fails",
+            "title": "Retry through AiSEG2 if direct control fails",
             "type": "boolean",
             "default": false,
             "description": "If enabled, matched shutters, door locks, and air purifiers retry through AiSEG2 when direct ECHONET Lite requests fail. EcoCute direct control requires ECHONET Lite."
@@ -126,31 +126,31 @@
         }
       },
       "energy": {
-        "title": "Energy status sensors",
+        "title": "Energy status in Apple Home",
         "type": "object",
         "properties": {
           "enabled": {
-            "title": "Show energy status sensors in Apple Home",
+            "title": "Show solar/battery status sensors",
             "type": "boolean",
             "default": false,
             "description": "Adds contact-sensor style services for Solar Surplus, Battery Ready, Battery Discharging, and EcoCute Good Time. Raw W/kWh values are logged only."
           },
           "solarSurplusWatts": {
-            "title": "Solar surplus threshold watts",
+            "title": "Solar surplus threshold (W)",
             "type": "integer",
             "minimum": 0,
             "maximum": 100000,
             "default": 2500
           },
           "batteryReadyPercent": {
-            "title": "Battery ready percent",
+            "title": "Battery ready threshold (%)",
             "type": "integer",
             "minimum": 0,
             "maximum": 100,
             "default": 80
           },
           "batteryDischargeThresholdWatts": {
-            "title": "Battery discharge threshold watts",
+            "title": "Battery discharging threshold (W)",
             "type": "integer",
             "minimum": 0,
             "maximum": 100000,
@@ -159,60 +159,60 @@
         }
       },
       "ecocuteSolarAutomation": {
-        "title": "EcoCute solar automation",
+        "title": "EcoCute solar start",
         "type": "object",
         "properties": {
           "enabled": {
-            "title": "Enable EcoCute solar automation",
+            "title": "Enable automatic start",
             "type": "boolean",
             "default": false,
             "description": "Automatically starts manual EcoCute water heating when solar, battery, weather, and time-window conditions are met. It never sends stop."
           },
           "dryRun": {
-            "title": "Dry run",
+            "title": "Log only, do not start heating",
             "type": "boolean",
             "default": true,
             "description": "Logs when EcoCute would be started without sending the command."
           },
           "ecocuteName": {
-            "title": "EcoCute",
+            "title": "EcoCute device",
             "type": "string",
             "default": "",
             "description": "Optional AiSEG2 EcoCute display name. Leave empty only when exactly one EcoCute exists."
           },
           "allowedStartTime": {
-            "title": "Allowed start time",
+            "title": "Earliest start time",
             "type": "string",
             "default": "09:30",
             "description": "Local HH:mm time when automation may start."
           },
           "allowedEndTime": {
-            "title": "Allowed end time",
+            "title": "Latest start time",
             "type": "string",
             "default": "14:30",
             "description": "Local HH:mm time after which automation will not start."
           },
           "minSolarWatts": {
-            "title": "Minimum solar watts",
+            "title": "Minimum solar generation (W)",
             "type": "integer",
             "minimum": 0,
             "maximum": 100000,
             "default": 2500
           },
           "minBatteryPercent": {
-            "title": "Minimum battery percent",
+            "title": "Minimum battery level (%)",
             "type": "integer",
             "minimum": 0,
             "maximum": 100,
             "default": 80
           },
           "requireBatteryNotDischarging": {
-            "title": "Require battery not discharging",
+            "title": "Do not start while battery is discharging",
             "type": "boolean",
             "default": true
           },
           "minBatteryChargeWatts": {
-            "title": "Minimum battery charge watts",
+            "title": "Minimum battery charging power (W)",
             "type": "integer",
             "minimum": 0,
             "maximum": 100000,
@@ -220,25 +220,25 @@
             "description": "Optional stricter gate. Keep 0 to allow standby/low charging when other conditions are good."
           },
           "oncePerDay": {
-            "title": "Start at most once per day",
+            "title": "Start only once per day",
             "type": "boolean",
             "default": true
           },
           "checkIntervalSeconds": {
-            "title": "Check interval seconds",
+            "title": "Check interval (seconds)",
             "type": "integer",
             "minimum": 60,
             "maximum": 3600,
             "default": 300
           },
           "weatherEnabled": {
-            "title": "Use weather forecast",
+            "title": "Check weather forecast before starting",
             "type": "boolean",
             "default": false,
             "description": "Adds an Open-Meteo forecast gate using shortwave radiation, cloud cover, and precipitation probability."
           },
           "latitude": {
-            "title": "Latitude",
+            "title": "Weather latitude",
             "type": "number",
             "minimum": -90,
             "maximum": 90,
@@ -246,7 +246,7 @@
             "description": "Use the custom settings UI location button to fill this from browser geolocation."
           },
           "longitude": {
-            "title": "Longitude",
+            "title": "Weather longitude",
             "type": "number",
             "minimum": -180,
             "maximum": 180,
@@ -254,28 +254,28 @@
             "description": "Use the custom settings UI location button to fill this from browser geolocation."
           },
           "forecastHours": {
-            "title": "Forecast hours",
+            "title": "Forecast lookahead (hours)",
             "type": "integer",
             "minimum": 1,
             "maximum": 12,
             "default": 3
           },
           "minForecastRadiationWatts": {
-            "title": "Minimum forecast radiation W/m2",
+            "title": "Minimum forecast sunlight (W/m2)",
             "type": "integer",
             "minimum": 0,
             "maximum": 1200,
             "default": 350
           },
           "maxForecastCloudCover": {
-            "title": "Maximum forecast cloud cover percent",
+            "title": "Maximum cloud cover (%)",
             "type": "integer",
             "minimum": 0,
             "maximum": 100,
             "default": 85
           },
           "maxForecastPrecipitationProbability": {
-            "title": "Maximum forecast precipitation probability percent",
+            "title": "Maximum precipitation chance (%)",
             "type": "integer",
             "minimum": 0,
             "maximum": 100,
@@ -284,17 +284,17 @@
         }
       },
       "webhook": {
-        "title": "Webhook lock trigger",
+        "title": "Door lock webhook",
         "type": "object",
         "properties": {
           "enabled": {
-            "title": "Enable webhook",
+            "title": "Enable webhook server",
             "type": "boolean",
             "default": false,
             "description": "Starts a local HTTP endpoint for POST requests such as UniFi fingerprint triggers."
           },
           "port": {
-            "title": "Webhook port",
+            "title": "Listen port",
             "type": "integer",
             "default": 18582
           },
@@ -304,19 +304,19 @@
             "default": "0.0.0.0"
           },
           "publicHost": {
-            "title": "Webhook public host",
+            "title": "URL host",
             "type": "string",
             "default": "",
             "description": "Host or IP used only when logging the generated URL, for example 192.168.50.111."
           },
           "token": {
-            "title": "Webhook token",
+            "title": "Secret token",
             "type": "string",
             "default": "",
             "description": "Secret URL token. Leave empty to auto-generate and persist one; the generated URL is printed in the Homebridge log."
           },
           "method": {
-            "title": "Webhook HTTP method",
+            "title": "Accepted method",
             "type": "string",
             "default": "post",
             "oneOf": [
@@ -336,7 +336,7 @@
             "description": "HTTP method accepted by the webhook endpoint. POST is safer; use GET only for integrations that cannot send POST."
           },
           "action": {
-            "title": "Webhook lock action",
+            "title": "Action on trigger",
             "type": "string",
             "default": "unlock",
             "oneOf": [
@@ -352,13 +352,13 @@
             "description": "Unlock only always requests unlock. Toggle unlocks when locked and locks when unlocked."
           },
           "doorLockName": {
-            "title": "Door lock name",
+            "title": "Target door lock",
             "type": "string",
             "default": "",
             "description": "Optional AiSEG2 door lock display name. Leave empty when only one door lock exists."
           },
           "cooldownSeconds": {
-            "title": "Webhook cooldown seconds",
+            "title": "Duplicate event cooldown (seconds)",
             "type": "integer",
             "minimum": 0,
             "maximum": 3600,
