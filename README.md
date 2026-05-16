@@ -6,34 +6,32 @@
 </p>
 
 
-# Homebridge AiSEG2 Plugin
+# Homebridge AiSEG2 插件
 
- A Homebridge platform plugin to control devices managed by a [Panasonic AiSEG2](https://www2.panasonic.biz/ls/densetsu/aiseg/) controller.
+本插件是一个 Homebridge 平台插件,用来控制由 [Panasonic AiSEG2](https://www2.panasonic.biz/ls/densetsu/aiseg/) 控制器接入的设备。
 
-This plugin supports the following AiSEG2 devices:
+## 支持的设备
 
-* Panasonic Advance Series light switches as HomeKit Lightbulb accessories
-* AiSEG2 air conditioners as HomeKit Heater Cooler accessories with indoor humidity, outdoor temperature, fan, humidity, and extra mode services
-* AiSEG2 shutters as HomeKit Window Covering accessories
-* AiSEG2 air purifiers as HomeKit Air Purifier accessories with separate AirMe/Eco mode switches and odor, PM2.5, and house dust Air Quality Sensor services
-* AiSEG2 EcoCute heat pump water systems as HomeKit Switch and Temperature Sensor services when matched to ECHONET Lite
-* AiSEG2 solar/storage battery status as Apple Home-compatible status sensors, with optional EcoCute solar automation
-* AiSEG2 air environment sensors as HomeKit Temperature Sensor and Humidity Sensor services
-* AiSEG2 electric door locks as HomeKit Lock Mechanism accessories
-* AiSEG2 open/close and window lock sensors as HomeKit Contact Sensor accessories, optionally with read-only lock-state Contact Sensor services
-* AiSEG2 fire alarm registrations as HomeKit Smoke Sensor accessories
+| AiSEG2 设备 | 暴露给 HomeKit 的服务 |
+| --- | --- |
+| Panasonic Advance 系列开关 / 调光灯 | `Lightbulb`(支持调光的设备会自动启用 `Brightness`) |
+| 空调 | `HeaterCooler`,并附带室内湿度、室外温度、风量、加湿和扩展模式服务 |
+| 电动百叶 / 卷帘 | `WindowCovering` |
+| 空气净化器 | `AirPurifier` + 气味 / PM2.5 / ハウスダスト 三个 `AirQualitySensor` + エアミー / 省エネ 两个模式开关 |
+| EcoCute(エコキュート,匹配到 ECHONET Lite 后) | 手动沸き上げ `Switch` + 罐 / 给汤 / 风呂 三个 `TemperatureSensor`,设备支持时再加一个 ふろ自動 `Switch` |
+| 太阳能 / 蓄电池能量状态 | Solar Surplus / Battery Ready / Battery Discharging / EcoCute Good Time 四个 `OccupancySensor`(按可用性裁剪),以及检测到蓄电池时附带的 `Battery` 服务 |
+| 空气环境传感器 | 配对的 `TemperatureSensor` + `HumiditySensor` |
+| 电子门锁 | `LockMechanism` |
+| 开关 / 窗锁传感器 | `ContactSensor`,可选另加一个只读的锁状态 `ContactSensor` |
+| 火灾报警注册 | `SmokeSensor` |
 
-Development and testing has been performed using an MKN704 controller. The MKN705 and KMN713 controllers may also work if their web
-interfaces expose the same AiSEG2 endpoints.
+开发和测试基于 MKN704 控制器。如果 MKN705、KMN713 等型号的 Web 界面暴露相同的 AiSEG2 端点,也可能能用。
 
-## Configuration
+## 配置
 
-To configure the plugin, supply the password used to login to the AiSEG2 web interface. Set `host` for a fixed controller IP, or
-leave `host` empty with `autodiscover` enabled to scan the Homebridge host's current local IPv4 subnets. Auto discovery does not
-write the discovered address back to `config.json`, and a configured `host` always takes precedence.
+最少需要提供 AiSEG2 Web 界面的登录密码。`host` 可以填一个固定 IP;或者留空 `host` 并开启 `autodiscover`,插件会扫描 Homebridge 主机当前的本地 IPv4 子网。自动发现的结果不会回写到 `config.json`,并且一旦配置了 `host`,`host` 始终优先。
 
-The custom Homebridge settings UI uses friendlier names than the raw config keys below. The keys are kept stable so existing
-installations can upgrade without rewriting `config.json`.
+Homebridge 自定义 UI 用比较友好的命名,但底层配置键保持稳定,老的 `config.json` 升级时不需要重写。
 
     "platforms": [{
         "name": "AiSEG2",
@@ -62,6 +60,21 @@ installations can upgrade without rewriting `config.json`.
             "batteryReadyPercent": 80,
             "batteryDischargeThresholdWatts": 100
         },
+        "statusApi": {
+            "enabled": false,
+            "port": 18583,
+            "bind": "0.0.0.0",
+            "publicHost": "",
+            "token": "",
+            "ecocuteName": "",
+            "weatherEnabled": false,
+            "latitude": 0,
+            "longitude": 0,
+            "forecastHours": 3,
+            "emergencyHotWaterLiters": 200,
+            "nightFallbackTime": "01:00",
+            "nightFallbackHotWaterLiters": 350
+        },
         "ecocuteSolarAutomation": {
             "enabled": false,
             "dryRun": true,
@@ -70,11 +83,10 @@ installations can upgrade without rewriting `config.json`.
             "allowedEndTime": "14:30",
             "minSolarWatts": 2500,
             "minBatteryPercent": 80,
-            "requireBatteryNotDischarging": true,
             "minBatteryChargeWatts": 0,
-            "oncePerDay": true,
+            "nightFallbackTime": "01:00",
+            "nightFallbackHotWaterLiters": 350,
             "checkIntervalSeconds": 300,
-            "weatherEnabled": false,
             "latitude": 0,
             "longitude": 0,
             "forecastHours": 3,
@@ -96,67 +108,139 @@ installations can upgrade without rewriting `config.json`.
         "platform": "AiSEG2"
     }]
 
-Auto discovery is intentionally local-only: it scans private IPv4 addresses on the Homebridge machine's active non-Docker
-interfaces and does not use mDNS or cross-VLAN routing.
+### 自动发现
 
-Apple Home layout options use HomeKit primary/linked services so related measurements stay associated with the same accessory. Air
-purifiers link odor, PM2.5, house dust, and AirMe/Eco mode switches to the purifier service. Air conditioners link indoor humidity,
-outdoor temperature, fan, humidity, and extra mode services to the heater cooler service. Air environment sensors link humidity to the
-paired temperature service. EcoCute devices link automatic bath and temperature services to the manual water-heating switch.
+`autodiscover` 只扫本机:遍历 Homebridge 主机活动的非 Docker 网卡上的私有 IPv4 地址(`lo`、`docker*`、`br-*` 等接口会被跳过),不使用 mDNS 也不会跨 VLAN。每个子网最多扫 254 个主机,扫到的候选并发数为 64。
 
-For air purifiers with AirMe/Eco automatic modes, HomeKit's generic Auto target maps to AirMe by default. Eco remains available as
-a separate mode switch.
+### Apple Home 服务分组
 
-Set `exposeContactSensorLockState` to `true` to add a read-only Contact Sensor service to window lock sensors that report
-`lockVal`. Locked is reported as contact detected, and unlocked is reported as contact not detected.
+四个 `group*` 选项使用 HomeKit 的主服务 / 关联服务机制,把相关传感器挂到同一个配件下:
 
-Set `echonetDiscovery` to `true` to log ECHONET Lite devices visible from the Homebridge host. Leave `echonetSubnets` empty to scan
-the host's current local IPv4 subnets, or set a comma-separated list such as `192.168.20.0/24` for routed device networks. This is a
-diagnostic scan only; `echonet.enabled` below also runs discovery and uses matched endpoints for direct control.
+- `groupAirPurifierSensors`:气味、PM2.5、ハウスダスト 和 エアミー/省エネ 模式开关挂到 `AirPurifier` 上
+- `groupAirConditionerSensors`:室内湿度、室外温度、风量、加湿和扩展模式服务挂到 `HeaterCooler` 上
+- `groupAirEnvironmentSensors`:配对的湿度传感器挂到温度传感器上
+- `groupEcocuteServices`:ふろ自動 和三个温度服务挂到手动沸き上げ开关上
 
-Set `echonet.enabled` to `true` to use direct ECHONET Lite control for devices that can be matched automatically. AiSEG2 still
-provides the accessory names. Shutters, air purifiers, and EcoCute devices are matched by EOJ after ECHONET discovery; HF-JA1/HF-JA2
-door locks are matched automatically when exactly one endpoint is found. Manual `echonet.doorLockHosts` overrides are only for rare
-ambiguous HF-JA installs and are intentionally hidden from the normal settings UI. Startup and action logs show whether each accessory
-uses ECHONET Lite or AiSEG2. Set `echonet.fallbackToAiseg` to `true` only if you want shutters, door locks, and air purifiers to retry
-through AiSEG2 when direct ECHONET Lite fails.
+空气净化器的 HomeKit Auto 目标态映射到 AirMe (エアミー)模式。省エネ (Eco) 作为单独的模式开关保留。
 
-Direct shutter position control is used only when the ECHONET endpoint advertises the standard degree-of-opening property (`0xe1`).
-Some shutters expose timed movement (`0xd2`/`0xe9`) instead; the plugin does not treat that as exact percentage feedback and keeps
-AiSEG2 as the fallback for half-open commands.
+### 窗锁状态传感器
 
-EcoCute support uses AiSEG2 only to discover the named water heater and ECHONET Lite for status/control. The manual water-heating
-HomeKit switch turns on while manual water heating is active; turning it off sends the water-heating stop command. The automatic bath
-switch controls and reflects `ふろ自動`, which keeps the bath filled/warm until stopped. Automatic tank heating settings are not
-exposed in HomeKit.
+`exposeContactSensorLockState` 设为 `true` 时,会给上报 `lockVal` 的窗锁传感器再加一个只读 `ContactSensor`:**锁上 = Contact Detected**,**未锁 = Contact Not Detected**。老版本曾用 `LockMechanism`,启动时会自动迁移到 ContactSensor。
 
-Set `energy.enabled` to `true` to show ECHONET Lite household solar generation (`0x0279`) and storage battery (`0x027d`) status in
-Apple Home. Apple Home does not expose raw W/kWh power meters through Homebridge, so the plugin publishes derived Detected/Not
-Detected status services for Solar Surplus, Battery Ready, Battery Discharging, and EcoCute Good Time, plus a Battery service for
-storage battery percentage when available. EcoCute solar automation reads energy data independently of this visibility option; raw
-values are logged at debug level.
+### ECHONET Lite 直连
 
-Set `ecocuteSolarAutomation.enabled` to `true` to allow the plugin to start EcoCute manual water heating when the configured solar,
-battery, weather, and time-window conditions are met. This automation only sends the manual water-heating ON command; it never sends
-OFF, so EcoCute completes or stops the heating cycle using its own controls. Keep `dryRun` enabled first to verify the log decisions
-before allowing active control. Weather gating uses Open-Meteo forecast data when `weatherEnabled` is true and `latitude`/`longitude`
-are configured. The custom settings UI can fill latitude and longitude from browser geolocation after permission is granted.
+ECHONET Lite 相关有两层开关:
 
-Set `webhook.enabled` to `true` to start a token-protected HTTP endpoint for external triggers such as UniFi fingerprint events.
-The endpoint accepts `/api/webhook/<token>` on `webhook.port`; leave `webhook.token` empty to auto-generate and persist one. The
-generated URL is printed in the Homebridge log, using `webhook.publicHost` when set. `webhook.method` can be `post`, `get`, or
-`any`; POST is the safer default, and GET should be used only when the triggering system cannot send POST. `webhook.action` can be
-`unlock` or `toggle`; use `unlock` for fingerprint unlock-only behavior, and `toggle` only when duplicate events are controlled by
-`webhook.cooldownSeconds`.
+1. `echonetDiscovery` 仅作诊断:启动时打印通过 ECHONET Lite 发现的设备,但不改变控制路径。
+2. `echonet.enabled` 真正启用直连。匹配方式:
+   - 卷帘、空气净化器、EcoCute 按 EOJ 自动匹配
+   - HF-JA1/HF-JA2 门锁:只有当只发现到唯一一个端点时才会自动匹配
+   - `echonet.doorLockHosts` 是手动覆盖,只为极少数 HF-JA 多端点歧义场景准备,默认在 UI 里隐藏
 
-## Future Development
+`echonet.subnets` 留空就扫本机当前本地 IPv4 子网;也可以传 `192.168.20.0/24` 这种逗号分隔列表(`/24` 到 `/32`),用于跨网段设备。`echonetSubnets` 顶层键仅用于 `echonetDiscovery` 的诊断扫描;两者作用范围不同。
 
-Additional AiSEG2 device classes may be added where HomeKit has a reasonable mapping:
+启动和动作日志会显示每个配件用的是 ECHONET Lite 还是 AiSEG2。`echonet.fallbackToAiseg` 只在你希望卷帘、门锁和空气净化器在直连失败时再退回 AiSEG2 时才打开。**EcoCute 没有 AiSEG2 回退路径**——AiSEG2 只用来发现设备名,实际控制必须依赖 ECHONET Lite。
 
-* Call button alerts
-* Delivery box alerts
-* EV chargers
-* Gas hot water systems
-* Rangehoods
-* Under floor heaters
-* Window sashes
+卷帘的精确位置控制仅当端点支持标准的「开度」属性 `0xe1` 时启用。部分卷帘只有定时移动属性 `0xd2`/`0xe9`,插件不会把它们当作精确百分比反馈使用——半开命令仍走 AiSEG2。
+
+### EcoCute
+
+EcoCute 用 AiSEG2 来发现命名的设备,用 ECHONET Lite 拿状态、发命令。HomeKit 暴露:
+
+- **手动沸き上げ** `Switch`:打开后发出手动沸き上げ命令并跟踪「沸き上げ中」状态;关闭时仅在当前正在手动加热时才发停止命令,其他场景下视为无操作,避免误关 AiSEG2 自动运行模式。
+- **ふろ自動** `Switch`:仅当 ECHONET 端点支持 EPC `0xe3` 时才暴露,控制并反映「ふろ自動」(保持浴缸有水且保温,直到停止)。
+- 三个 `TemperatureSensor`:罐温、给汤温、风呂水温。
+
+罐内剩余热水量、罐容量、自动沸き上げ的时段设置等不在 HomeKit 中暴露,但可通过下面的 Homepage 状态 API 读到。
+
+### 能量状态(`energy`)
+
+`energy.enabled` 打开后,会用 ECHONET Lite 的家庭太阳能(`0x0279`)和蓄电池(`0x027d`)数据生成 Apple Home 服务。由于 Homebridge 不能把原始 W/kWh 功率表上报到 Apple Home,插件改为发布四个派生的 `OccupancySensor` 状态服务:
+
+| 服务 | 何时 Occupied | 阈值 |
+| --- | --- | --- |
+| Solar Surplus | 实时发电 ≥ 阈值 | `solarSurplusWatts`(默认 2500W) |
+| Battery Ready | 电量 ≥ 阈值,且电池未在放电 | `batteryReadyPercent`(默认 80%) |
+| Battery Discharging | ECHONET 上报放电,或电池功率 ≤ -阈值 | `batteryDischargeThresholdWatts`(默认 100W) |
+| EcoCute Good Time | 同时满足 Solar Surplus + Battery Ready,且当前在 `ecocuteSolarAutomation` 的允许时间窗内 | — |
+
+检测到蓄电池时再附加一个 `Battery` 服务,带电量百分比和充放电状态。原始的 W/kWh 数据会以 debug 级别记录到日志。EcoCute 太阳能自动化即使没开 `energy.enabled` 也能独立读取这些 ECHONET Lite 数据。
+
+### Homepage 状态 API(`statusApi`)
+
+打开 `statusApi.enabled` 会启动一个**只读**本地 HTTP 端点,供 [Homepage](https://gethomepage.dev/) 的 customapi widget 等外部服务读取:
+
+```
+GET http://<host>:18583/api/aiseg2/status/<token>
+```
+
+- `token` 留空时自动生成并持久化到 Homebridge 存储目录下的 `aiseg2-status-api.json`(权限 0600),生成的完整 URL 会打印到日志。
+- 响应包含一次性整合的 EcoCute 状态、太阳能/电池/电网数据、可选的 Open-Meteo 天气预报,以及当下加热计划摘要(`current` / `solar` / `nextSolar` / `emergency` / `nightFallback`),同时提供一个扁平的 `homepage` 字段树,便于直接拼到 widget 里。
+- 内置 25 秒的内存缓存,同时去重并发请求。
+- 此 API 只产生 JSON 数据,不会在 Apple Home 里多出任何配件。
+
+`emergencyHotWaterLiters`(默认 200L)和 `nightFallback*`(默认 01:00 / 350L)仅用于 Homepage 显示——告知用户剩余热水偏低 / 夜间补热计划状态。**插件不会因为 emergency 阈值触发立即加热**,真正动手的是下面的 EcoCute 自动化。
+
+天气预报字段在 `weatherEnabled` 为 true 且 `latitude`/`longitude` 已设置时填充,使用 Open-Meteo 的短波辐射 / 云量 / 降水概率小时数据;若 `ecocuteSolarAutomation` 已经配置了 lat/lng,这里留空会自动复用。
+
+### EcoCute 太阳能自动化(`ecocuteSolarAutomation`)
+
+`ecocuteSolarAutomation.enabled = true` 时,插件会按 `checkIntervalSeconds`(默认 300s)轮询,在满足条件时**仅发出**手动沸き上げ的 ON 命令——**永远不会发 OFF**,加热的结束完全由 EcoCute 自己决定。前提:必须同时开启 `echonet.enabled` 且 `echonet.preferEcocutes` 为 true,否则只会打 warn 日志。
+
+建议先把 `dryRun` 开着,观察日志里的判定再放行实际动作。
+
+#### 日间太阳能启动
+
+启动条件按顺序检查(任何一条不满足就跳过本次轮询):
+
+1. 当前时间落在 `allowedStartTime`–`allowedEndTime`(默认 09:30–14:30,可跨午夜)
+2. 当天本地日期还没启动过太阳能或夜间补热加热(状态持久化到 `aiseg2-ecocute-solar-automation.json`)
+3. EcoCute 当前不在加热中
+4. 太阳能发电 ≥ `minSolarWatts`(默认 2500W)
+5. 蓄电池电量 ≥ `minBatteryPercent`(默认 80%)
+6. 蓄电池**没在放电**(硬性条件,不可配置)
+7. 若 `minBatteryChargeWatts > 0`,蓄电池充电功率 ≥ 此阈值(默认 0,允许待机 / 低速充电)
+8. 若已配置 `latitude`/`longitude`,未来 `forecastHours` 小时的天气满足:
+   - 最大短波辐射 ≥ `minForecastRadiationWatts`(默认 350 W/m²)
+   - 平均云量 ≤ `maxForecastCloudCover`(默认 85%)
+   - 最大降水概率 ≤ `maxForecastPrecipitationProbability`(默认 70%)
+
+> 注:在 `ecocuteSolarAutomation` 这个块下并不存在 `weatherEnabled`——是否启用天气过滤完全取决于 lat/lng 是否被配置成有限且非 (0, 0) 的值。自定义 UI 提供「Get Location」按钮,经用户同意后可用浏览器地理定位填充。
+
+#### 夜间补热(night fallback)
+
+在 `nightFallbackTime`(默认 01:00,日间窗口之外)前后 `checkIntervalSeconds + 60s` 的窗口内,若 EcoCute 不在加热,以下任一成立即触发手动沸き上げ:
+
+- 罐内剩余热水 < `nightFallbackHotWaterLiters`(默认 350L)
+- 第二天的太阳能时间窗(由 `allowedStartTime`–`allowedEndTime` 推算)的天气预报被判定为「不够好」——最大辐射 / 平均云量 / 最大降水概率任一超过日间使用的同一组阈值
+
+夜间补热和日间太阳能共享每日一次的状态,记录字段不同(`lastNightFallbackLocalDate` vs `lastStartedLocalDate`),互不重复触发。
+
+### Webhook(`webhook`)
+
+`webhook.enabled = true` 会启动一个带 token 防护的本地 HTTP 端点,常用于 UniFi 指纹开锁等外部触发:
+
+```
+POST http://<host>:18582/api/webhook/<token>
+```
+
+- `webhook.token` 留空时自动生成并持久化到 `aiseg2-webhook.json`,完整 URL 打印到日志。`webhook.publicHost` 设置时会用它替换 URL 中的主机部分。
+- `webhook.method` 可为 `post` / `get` / `any`。默认 `post`;只有触发系统无法发 POST 时才考虑 GET。
+- `webhook.action`:
+  - `unlock`——总是请求解锁,即便当前已解锁(此时返回 200 并标 `ignored`)
+  - `toggle`——按当前锁状态切换。只有指纹一次扫描产生多次回调时才适合用,务必配合下面的冷却。
+- `webhook.cooldownSeconds`(默认 5s)用于忽略重复事件:在窗口内的请求返回 202 并标 `ignored=true, reason=cooldown`,防止指纹多次回调把锁切回去。
+- 多门锁场景下必须设置 `webhook.doorLockName`;只有一把锁时可以留空。
+- 请求体上限 64 KiB,超出会拒绝。
+
+## 未来开发方向
+
+下列 AiSEG2 设备类别在 HomeKit 中存在合理映射,可能后续会加入:
+
+* 呼叫按钮告警
+* 配送箱告警
+* 电动汽车充电桩
+* 燃气热水器
+* 抽油烟机
+* 地暖
+* 电动开窗器
