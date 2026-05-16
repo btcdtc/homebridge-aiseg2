@@ -27,6 +27,7 @@ import { ShutterAccessory } from './shutterAccessory';
 import { SmokeSensorAccessory } from './smokeSensorAccessory';
 import { Aiseg2Client } from './aiseg2Client';
 import { EnergyDevice, LightingDevice, SupportedDevice, SupportedDeviceKind } from './devices';
+import { Aiseg2StatusServer } from './statusServer';
 import { Aiseg2WebhookServer } from './webhookServer';
 
 
@@ -37,6 +38,7 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
 
   public readonly accessories: PlatformAccessory[] = [];
   private readonly intervalHandles = new Set<ReturnType<typeof setInterval>>();
+  private statusServer?: Aiseg2StatusServer;
   private webhookServer?: Aiseg2WebhookServer;
   private ecocuteSolarAutomation?: EcocuteSolarAutomation;
   private discoveredAccessoryUUIDs = new Set<string>();
@@ -71,8 +73,9 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
   // Discover the various AiSEG2 device types that are compatible with Homekit
   async discoverDevices(): Promise<void> {
     await this.resolveClient();
-    this.startWebhookServer();
     await this.discoverEchonetLiteDevices();
+    this.startStatusServer();
+    this.startWebhookServer();
     this.discoveredAccessoryUUIDs = new Set<string>();
     await this.discoverEnergy();
     await this.discoverLighting();
@@ -453,6 +456,10 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     return this.ecocuteSolarAutomationBoolean('enabled', false);
   }
 
+  public get statusApiEnabled(): boolean {
+    return this.statusApiBoolean('enabled', false);
+  }
+
   public get ecocuteSolarAutomationDryRun(): boolean {
     return this.ecocuteSolarAutomationBoolean('dryRun', true);
   }
@@ -743,6 +750,8 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       this.log.debug(`Cleared ${this.intervalHandles.size} AiSEG2 polling interval(s)`);
     }
     this.intervalHandles.clear();
+    this.statusServer?.stop();
+    this.statusServer = undefined;
     this.webhookServer?.stop();
     this.webhookServer = undefined;
     this.ecocuteSolarAutomation?.stop();
@@ -800,6 +809,20 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     this.webhookServer.start();
   }
 
+  private startStatusServer(): void {
+    if (this.statusServer) {
+      return;
+    }
+
+    const config = Aiseg2StatusServer.configFrom(this.config.statusApi, this.config.ecocuteSolarAutomation);
+    if (!config.enabled) {
+      return;
+    }
+
+    this.statusServer = new Aiseg2StatusServer(this.log, this.api, config, () => this.client);
+    this.statusServer.start();
+  }
+
   private startEcocuteSolarAutomation(): void {
     this.ecocuteSolarAutomation?.stop();
     this.ecocuteSolarAutomation = undefined;
@@ -824,6 +847,11 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
 
   private energyBoolean(key: string, defaultValue: boolean): boolean {
     const value = this.energyConfig[key];
+    return typeof value === 'boolean' ? value : defaultValue;
+  }
+
+  private statusApiBoolean(key: string, defaultValue: boolean): boolean {
+    const value = this.statusApiConfig[key];
     return typeof value === 'boolean' ? value : defaultValue;
   }
 
@@ -861,8 +889,16 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       : {};
   }
 
+  private get statusApiConfig(): Record<string, unknown> {
+    const value = this.config.statusApi;
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : {};
+  }
+
   private get needsEchonetLiteDiscovery(): boolean {
-    return this.echonetDiscovery || this.echonetEnabled || this.energyEnabled || this.ecocuteSolarAutomationEnabled;
+    return this.echonetDiscovery || this.echonetEnabled || this.energyEnabled ||
+      this.ecocuteSolarAutomationEnabled || this.statusApiEnabled;
   }
 
   private numberFrom(

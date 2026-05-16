@@ -22,6 +22,8 @@ export class EcocuteAccessory {
     tankTemperature: 0,
     suppliedWaterTemperature: 0,
     bathWaterTemperature: 0,
+    remainingWaterLiters: undefined as number | undefined,
+    tankCapacityLiters: undefined as number | undefined,
   };
 
   constructor(
@@ -32,9 +34,7 @@ export class EcocuteAccessory {
 
     this.platform.configureAccessoryInformation(
       this.accessory,
-      this.platform.client.echonetEndpointForEcocute(this.device)
-        ? 'AiSEG2 EcoCute (ECHONET Lite)'
-        : 'AiSEG2 EcoCute',
+      this.ecocuteModelName(),
       this.device.uuidSeed,
     );
 
@@ -157,6 +157,14 @@ export class EcocuteAccessory {
       this.state.bathWaterTemperature = status.bathWaterTemperature;
     }
 
+    if (status.remainingWaterLiters !== undefined) {
+      this.state.remainingWaterLiters = status.remainingWaterLiters;
+    }
+
+    if (status.tankCapacityLiters !== undefined) {
+      this.state.tankCapacityLiters = status.tankCapacityLiters;
+    }
+
     if (status.waterHeatingMode !== undefined) {
       this.state.manualHeating = status.waterHeatingMode === EcocuteWaterHeatingMode.ManualHeating &&
         status.waterHeatingStatus !== '0x42';
@@ -182,6 +190,14 @@ export class EcocuteAccessory {
       this.state.bathWaterTemperature,
     );
     this.bathAutoService?.updateCharacteristic(this.platform.Characteristic.On, this.state.bathAuto);
+
+    this.platform.log.debug(
+      `${this.device.displayName} EcoCute status: ` +
+      `tank=${this.formatNumber(status.tankTemperature, 'C')}, ` +
+      `remaining=${this.formatNumber(status.remainingWaterLiters, 'L')}/` +
+      `${this.formatNumber(status.tankCapacityLiters, 'L')} (${this.formatPercent(this.remainingWaterPercent(status))}), ` +
+      `heatingCommand=${status.waterHeatingMode || 'unknown'}, heatingStatus=${status.waterHeatingStatus || 'unknown'}`,
+    );
   }
 
   private getSwitchService(subtype: string, name: string): Service {
@@ -252,6 +268,27 @@ export class EcocuteAccessory {
     }
   }
 
+  private ecocuteModelName(): string {
+    const productCode = this.platform.client.echonetProductCodeForEcocute(this.device);
+    if (productCode) {
+      return `AiSEG2 EcoCute (${productCode})`;
+    }
+
+    return this.platform.client.echonetEndpointForEcocute(this.device)
+      ? 'AiSEG2 EcoCute (ECHONET Lite)'
+      : 'AiSEG2 EcoCute';
+  }
+
+  private remainingWaterPercent(status: EcocuteStatus): number | undefined {
+    const remaining = status.remainingWaterLiters ?? this.state.remainingWaterLiters;
+    const capacity = status.tankCapacityLiters ?? this.state.tankCapacityLiters;
+    if (remaining === undefined || capacity === undefined || capacity <= 0) {
+      return undefined;
+    }
+
+    return Math.max(0, Math.min(100, Math.round((remaining / capacity) * 100)));
+  }
+
   private formatWaterHeatingMode(mode: EcocuteWaterHeatingMode): string {
     switch (mode) {
       case EcocuteWaterHeatingMode.ManualHeating:
@@ -265,6 +302,14 @@ export class EcocuteAccessory {
 
   private delay(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private formatNumber(value: number | undefined, unit: string): string {
+    return value === undefined ? 'unknown' : `${value}${unit}`;
+  }
+
+  private formatPercent(value: number | undefined): string {
+    return value === undefined ? 'unknown' : `${value}%`;
   }
 
   private formatError(error: unknown): string {

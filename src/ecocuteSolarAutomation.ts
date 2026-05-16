@@ -256,8 +256,7 @@ export class EcocuteSolarAutomation {
   }
 
   private ecocuteAlreadyHeating(status: EcocuteStatus): boolean {
-    return status.waterHeatingMode === EcocuteWaterHeatingMode.ManualHeating &&
-      status.waterHeatingStatus !== '0x42';
+    return status.waterHeatingStatus === '0x41';
   }
 
   private decisionSummary(energy: EnergyStatus, weather: WeatherForecast | undefined): string {

@@ -110,6 +110,9 @@ export class EnergyAccessory {
       `solar=${this.formatNumber(status.solarGenerationWatts, 'W')}, ` +
       `battery=${this.formatNumber(status.batteryPercent, '%')}, ` +
       `batteryPower=${this.formatNumber(status.batteryPowerWatts, 'W')}, ` +
+      `gridPower=${this.formatNumber(status.gridPowerWatts, 'W')}, ` +
+      `gridNormal=${this.formatNumber(status.gridCumulativeNormalKwh, 'kWh')}, ` +
+      `gridReverse=${this.formatNumber(status.gridCumulativeReverseKwh, 'kWh')}, ` +
       `working=${status.batteryWorkingStatus || 'unknown'}, ` +
       `goodTime=${nextState.ecocuteGoodTime ? 'yes' : 'no'}`,
     );

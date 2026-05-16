@@ -25,6 +25,7 @@ void (async () => {
       this.onRequest('/door-locks', payload => this.handleLegacyDeviceGroup(payload, 'doorLocks'));
       this.onRequest('/ecocutes', payload => this.handleLegacyDeviceGroup(payload, 'ecocutes'));
       this.onRequest('/webhook-token', this.handleWebhookToken.bind(this));
+      this.onRequest('/status-token', this.handleStatusToken.bind(this));
       this.onRequest('/local-address', this.handleLocalAddress.bind(this));
       this.ready();
     }
@@ -58,6 +59,29 @@ void (async () => {
 
         const file = JSON.parse(fs.readFileSync(secretPath, 'utf8'));
         return { token: this.normalizeToken(file.token) };
+      } catch (error) {
+        return {
+          token: '',
+          error: this.formatError(error),
+        };
+      }
+    }
+
+    async handleStatusToken(payload) {
+      const config = payload && payload.config ? payload.config : {};
+      const configuredToken = this.normalizeStatusToken(config.statusApi && config.statusApi.token);
+      if (configuredToken) {
+        return { token: configuredToken };
+      }
+
+      try {
+        const secretPath = path.join(this.homebridgeStoragePath, 'aiseg2-status-api.json');
+        if (!fs.existsSync(secretPath)) {
+          return { token: '' };
+        }
+
+        const file = JSON.parse(fs.readFileSync(secretPath, 'utf8'));
+        return { token: this.normalizeStatusToken(file.token) };
       } catch (error) {
         return {
           token: '',
@@ -136,6 +160,10 @@ void (async () => {
 
     normalizeToken(token) {
       return String(token || '').trim().replace(/^\/?api\/webhook\//u, '');
+    }
+
+    normalizeStatusToken(token) {
+      return String(token || '').trim().replace(/^\/?api\/aiseg2\/status\//u, '');
     }
 
     localIpv4Address() {

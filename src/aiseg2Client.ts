@@ -155,6 +155,19 @@ export interface EnergyStatus {
   batteryStandby?: boolean;
   batteryCumulativeChargingKwh?: number;
   batteryCumulativeDischargingKwh?: number;
+  gridEndpoint?: string;
+  gridSource?: string;
+  gridPowerWatts?: number;
+  gridCumulativeNormalKwh?: number;
+  gridCumulativeReverseKwh?: number;
+  errors?: Record<string, string>;
+}
+
+export interface EchonetDeviceMetadata {
+  endpoint: string;
+  manufacturerCode?: string;
+  manufacturerName?: string;
+  productCode?: string;
 }
 
 export interface DoorLockStatus {
@@ -489,6 +502,10 @@ export class Aiseg2Client {
       return undefined;
     }
 
+    return this.echonetEndpointForEcocuteStatus(device);
+  }
+
+  echonetEndpointForEcocuteStatus(device: EcocuteDevice): EchonetLiteEndpoint | undefined {
     return this.findEchonetEndpoint(['0x026b'], normalizeEoj(device.eoj));
   }
 
@@ -500,8 +517,40 @@ export class Aiseg2Client {
     return this.findEchonetEndpoint(['0x027d']);
   }
 
+  echonetEndpointForMultipleInputPcs(): EchonetLiteEndpoint | undefined {
+    return this.findEchonetEndpoint(['0x02a5']);
+  }
+
+  echonetProductCodeForEcocute(device: EcocuteDevice): string | undefined {
+    return this.echonetMetadataForEcocute(device)?.productCode;
+  }
+
+  echonetMetadataForEcocute(device: EcocuteDevice): EchonetDeviceMetadata | undefined {
+    const endpoint = this.echonetEndpointForEcocuteStatus(device);
+    const object = endpoint ? this.findEchonetObject(endpoint) : undefined;
+    if (!endpoint || !object) {
+      return undefined;
+    }
+
+    return {
+      endpoint: formatEndpoint(endpoint),
+      manufacturerCode: object.manufacturerCode,
+      manufacturerName: object.manufacturerName,
+      productCode: object.productCode?.trim() || undefined,
+    };
+  }
+
+  ecocuteCanGet(device: EcocuteDevice, epc: number): boolean {
+    const endpoint = this.echonetEndpointForEcocuteStatus(device);
+    if (!endpoint) {
+      return false;
+    }
+
+    return this.echonetObjectHasProperty(endpoint, 'getProperties', epc);
+  }
+
   ecocuteCanSet(device: EcocuteDevice, epc: number): boolean {
-    const endpoint = this.echonetEndpointForEcocute(device);
+    const endpoint = this.echonetEndpointForEcocuteStatus(device);
     if (!endpoint) {
       return false;
     }
@@ -966,7 +1015,7 @@ export class Aiseg2Client {
   }
 
   async getEcocuteStatus(device: EcocuteDevice): Promise<EcocuteStatus> {
-    const endpoint = this.echonetEndpointForEcocute(device);
+    const endpoint = this.echonetEndpointForEcocuteStatus(device);
     if (!endpoint) {
       throw new Error(`No matching ECHONET Lite endpoint for EcoCute '${device.displayName}'`);
     }
@@ -975,19 +1024,38 @@ export class Aiseg2Client {
   }
 
   async getEnergyStatus(): Promise<EnergyStatus> {
-    const [solarStatus, batteryStatus] = await Promise.all([
+    const results = await Promise.allSettled([
       this.getEchonetSolarEnergyStatus(),
       this.getEchonetBatteryEnergyStatus(),
+      this.getEchonetMultipleInputPcsStatus(),
     ]);
+    const labels = ['solar', 'battery', 'grid'];
+    const status: EnergyStatus = {};
+    const errors: Record<string, string> = {};
 
-    if (!solarStatus.solarEndpoint && !batteryStatus.batteryEndpoint) {
-      throw new Error('No matching ECHONET Lite solar or storage battery endpoint was discovered');
+    results.forEach((result, index) => {
+      if (result.status === 'fulfilled') {
+        Object.assign(status, result.value);
+        return;
+      }
+
+      errors[labels[index]] = this.formatError(result.reason);
+    });
+
+    if (Object.keys(errors).length > 0) {
+      status.errors = errors;
     }
 
-    return {
-      ...solarStatus,
-      ...batteryStatus,
-    };
+    if (!status.solarEndpoint && !status.batteryEndpoint && !status.gridEndpoint) {
+      if (Object.keys(errors).length > 0) {
+        throw new Error(`No ECHONET Lite energy status could be read: ${
+          Object.entries(errors).map(([label, error]) => `${label}: ${error}`).join('; ')
+        }`);
+      }
+      throw new Error('No matching ECHONET Lite solar, storage battery, or multiple input PCS endpoint was discovered');
+    }
+
+    return status;
   }
 
   async getAirEnvironmentStatus(device: AirEnvironmentSensorDevice, force = false): Promise<AirEnvironmentStatus> {
@@ -1086,7 +1154,7 @@ export class Aiseg2Client {
   private async getEchonetEcocuteStatus(endpoint: EchonetLiteEndpoint): Promise<EcocuteStatus> {
     const requestedEpcs = [
       0x80, // Operation status
-      0xb0, // Automatic/manual water heating setting
+      0xb0, // Water heating command/state: auto, immediate manual start, immediate manual stop
       0xb2, // Heating status
       0xb3, // Water heating temperature setting
       0xb6, // Tank mode
@@ -1177,6 +1245,27 @@ export class Aiseg2Client {
       batteryStandby: workingStatus === '0x44' || batteryPowerWatts === 0,
       batteryCumulativeChargingKwh: this.milliKwh(values.get(0xd8)),
       batteryCumulativeDischargingKwh: this.milliKwh(values.get(0xd6)),
+    };
+  }
+
+  private async getEchonetMultipleInputPcsStatus(): Promise<EnergyStatus> {
+    const endpoint = this.echonetEndpointForMultipleInputPcs();
+    if (!endpoint) {
+      return {};
+    }
+
+    const values = await this.echonetClient.getProperties(endpoint, this.supportedGetEpcs(endpoint, [
+      0xe0, // Measured cumulative electric energy, normal direction, 0.001 kWh
+      0xe3, // Measured cumulative electric energy, reverse direction, 0.001 kWh
+      0xe7, // Measured instantaneous electric power, signed W
+    ]));
+
+    return {
+      gridEndpoint: formatEndpoint(endpoint),
+      gridSource: 'multipleInputPcs',
+      gridPowerWatts: this.signedNumber(values.get(0xe7)),
+      gridCumulativeNormalKwh: this.milliKwh(values.get(0xe0)),
+      gridCumulativeReverseKwh: this.milliKwh(values.get(0xe3)),
     };
   }
 

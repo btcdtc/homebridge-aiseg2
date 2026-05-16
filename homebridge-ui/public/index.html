@@ -208,6 +208,87 @@
 
   <section class="aiseg2-section">
     <div class="aiseg2-heading">
+      <h2>Homepage Status API</h2>
+      <button class="btn btn-outline-secondary btn-sm" id="refreshStatusEcocutes" type="button">Refresh EcoCute list</button>
+    </div>
+    <div class="aiseg2-muted mb-3">
+      Read-only JSON endpoint for Homepage customapi widgets. It does not add services to Apple Home.
+    </div>
+    <div class="aiseg2-grid">
+      <div class="form-check align-self-end mb-2">
+        <input class="form-check-input" id="status-enabled" type="checkbox">
+        <label class="form-check-label" for="status-enabled">Enable Homepage status API</label>
+      </div>
+      <div>
+        <label class="form-label" for="statusEcocuteName">EcoCute device</label>
+        <select class="form-select" id="statusEcocuteName">
+          <option value="">All EcoCute devices</option>
+        </select>
+      </div>
+      <div>
+        <label class="form-label" for="status-port">Listen port</label>
+        <input class="form-control" id="status-port" type="number" inputmode="numeric" min="1" max="65535" step="1">
+      </div>
+      <div>
+        <label class="form-label" for="status-bind">Bind address</label>
+        <input class="form-control" id="status-bind" type="text" placeholder="0.0.0.0">
+      </div>
+      <div>
+        <label class="form-label" for="statusPublicHost">URL host</label>
+        <input class="form-control" id="statusPublicHost" type="text" placeholder="192.168.50.111">
+      </div>
+      <div class="form-check align-self-end mb-2">
+        <input class="form-check-input" id="statusWeatherEnabled" type="checkbox">
+        <label class="form-check-label" for="statusWeatherEnabled">Include weather forecast</label>
+      </div>
+      <div>
+        <label class="form-label" for="statusLatitude">Weather latitude</label>
+        <input class="form-control" id="statusLatitude" type="number" min="-90" max="90" step="0.000001">
+      </div>
+      <div>
+        <label class="form-label" for="statusLongitude">Weather longitude</label>
+        <input class="form-control" id="statusLongitude" type="number" min="-180" max="180" step="0.000001">
+      </div>
+      <div>
+        <label class="form-label" for="statusForecastHours">Forecast lookahead (hours)</label>
+        <input class="form-control" id="statusForecastHours" type="number" inputmode="numeric" min="1" max="12" step="1">
+      </div>
+      <div>
+        <label class="form-label" for="statusEmergencyHotWaterLiters">Emergency hot water threshold (L)</label>
+        <input class="form-control" id="statusEmergencyHotWaterLiters" type="number" inputmode="numeric" min="0" max="5000" step="10">
+      </div>
+      <div>
+        <label class="form-label" for="statusNightFallbackTime">Night fallback time</label>
+        <input class="form-control" id="statusNightFallbackTime" type="time" step="60">
+      </div>
+      <div>
+        <label class="form-label" for="statusNightFallbackHotWaterLiters">Night fallback hot water threshold (L)</label>
+        <input class="form-control" id="statusNightFallbackHotWaterLiters" type="number" inputmode="numeric" min="0" max="5000" step="10">
+      </div>
+      <div class="form-check align-self-end mb-2">
+        <input class="form-check-input" id="statusNightFallbackWhenNextSolarBlocked" type="checkbox">
+        <label class="form-check-label" for="statusNightFallbackWhenNextSolarBlocked">Fallback at night if next solar window is blocked</label>
+      </div>
+    </div>
+    <div class="mt-3">
+      <label class="form-label" for="status-token">Secret token</label>
+      <div class="input-group">
+        <input class="form-control" id="status-token" type="text" autocomplete="off" spellcheck="false">
+        <button class="btn btn-outline-secondary" id="statusGenerateToken" type="button">Generate</button>
+      </div>
+    </div>
+    <div class="mt-3">
+      <label class="form-label" for="status-url">Homepage customapi URL</label>
+      <div class="aiseg2-url-row">
+        <input class="form-control" id="status-url" type="text" readonly>
+        <button class="btn btn-outline-secondary" id="statusCopyUrl" type="button">Copy</button>
+      </div>
+      <div class="form-text" id="statusHelp"></div>
+    </div>
+  </section>
+
+  <section class="aiseg2-section">
+    <div class="aiseg2-heading">
       <h2>EcoCute Solar Start</h2>
       <button class="btn btn-outline-secondary btn-sm" id="refreshEcocutes" type="button">Refresh EcoCute list</button>
     </div>
@@ -403,6 +484,22 @@
       batteryReadyPercent: 80,
       batteryDischargeThresholdWatts: 100,
     },
+    statusApi: {
+      enabled: false,
+      port: 18583,
+      bind: '0.0.0.0',
+      publicHost: '',
+      token: '',
+      ecocuteName: '',
+      weatherEnabled: false,
+      latitude: 0,
+      longitude: 0,
+      forecastHours: 3,
+      emergencyHotWaterLiters: 200,
+      nightFallbackTime: '01:00',
+      nightFallbackHotWaterLiters: 350,
+      nightFallbackWhenNextSolarBlocked: true,
+    },
     ecocuteSolarAutomation: {
       enabled: false,
       dryRun: true,
@@ -466,6 +563,47 @@
       min: 0,
       max: 100000,
       requires: 'energy-enabled',
+    },
+    { id: 'status-enabled', path: 'statusApi.enabled', type: 'boolean' },
+    { id: 'statusEcocuteName', path: 'statusApi.ecocuteName', type: 'string', requires: 'status-enabled' },
+    { id: 'status-port', path: 'statusApi.port', type: 'integer', fallback: 18583, min: 1, max: 65535, requires: 'status-enabled' },
+    { id: 'status-bind', path: 'statusApi.bind', type: 'string', fallback: '0.0.0.0', emptyFallback: '0.0.0.0', requires: 'status-enabled' },
+    { id: 'statusPublicHost', path: 'statusApi.publicHost', type: 'string', requires: 'status-enabled' },
+    { id: 'status-token', path: 'statusApi.token', type: 'string', normalize: normalizeStatusToken, requires: 'status-enabled' },
+    { id: 'statusWeatherEnabled', path: 'statusApi.weatherEnabled', type: 'boolean', requires: 'status-enabled' },
+    { id: 'statusLatitude', path: 'statusApi.latitude', type: 'number', fallback: 0, min: -90, max: 90, requires: 'statusWeatherEnabled' },
+    { id: 'statusLongitude', path: 'statusApi.longitude', type: 'number', fallback: 0, min: -180, max: 180, requires: 'statusWeatherEnabled' },
+    { id: 'statusForecastHours', path: 'statusApi.forecastHours', type: 'integer', fallback: 3, min: 1, max: 12, requires: 'statusWeatherEnabled' },
+    {
+      id: 'statusEmergencyHotWaterLiters',
+      path: 'statusApi.emergencyHotWaterLiters',
+      type: 'integer',
+      fallback: 200,
+      min: 0,
+      max: 5000,
+      requires: 'status-enabled',
+    },
+    {
+      id: 'statusNightFallbackTime',
+      path: 'statusApi.nightFallbackTime',
+      type: 'string',
+      fallback: '01:00',
+      requires: 'status-enabled',
+    },
+    {
+      id: 'statusNightFallbackHotWaterLiters',
+      path: 'statusApi.nightFallbackHotWaterLiters',
+      type: 'integer',
+      fallback: 350,
+      min: 0,
+      max: 5000,
+      requires: 'status-enabled',
+    },
+    {
+      id: 'statusNightFallbackWhenNextSolarBlocked',
+      path: 'statusApi.nightFallbackWhenNextSolarBlocked',
+      type: 'boolean',
+      requires: 'status-enabled',
     },
     { id: 'ecocute-auto-enabled', path: 'ecocuteSolarAutomation.enabled', type: 'boolean' },
     { id: 'ecocute-auto-dryRun', path: 'ecocuteSolarAutomation.dryRun', type: 'boolean', requires: 'ecocute-auto-enabled' },
@@ -551,6 +689,13 @@
       emptyLabel: 'Auto (single EcoCute)',
       title: 'EcoCute discovery',
     },
+    {
+      group: 'ecocutes',
+      selectId: 'statusEcocuteName',
+      buttonId: 'refreshStatusEcocutes',
+      emptyLabel: 'All EcoCute devices',
+      title: 'Homepage EcoCute discovery',
+    },
   ];
 
   let config = clone(DEFAULT_CONFIG);
@@ -568,6 +713,7 @@
     const output = { ...base, ...(value || {}) };
     output.echonet = { ...base.echonet, ...((value && value.echonet) || {}) };
     output.energy = { ...base.energy, ...((value && value.energy) || {}) };
+    output.statusApi = { ...base.statusApi, ...((value && value.statusApi) || {}) };
     output.ecocuteSolarAutomation = {
       ...base.ecocuteSolarAutomation,
       ...((value && value.ecocuteSolarAutomation) || {}),
@@ -605,6 +751,7 @@
       writeFieldToElement(field, getPath(config, field.path));
     }
     updateWebhookUrl();
+    updateStatusUrl();
     updateDependentFields();
   }
 
@@ -676,6 +823,7 @@
 
   function scheduleConfigUpdate() {
     updateWebhookUrl();
+    updateStatusUrl();
     updateDependentFields();
     clearTimeout(updateTimer);
     updateTimer = setTimeout(async () => {
@@ -696,6 +844,8 @@
     $('useBrowserLocation').disabled = $('weatherEnabled').disabled || !checked('weatherEnabled');
     $('generateToken').disabled = !checked('webhook-enabled');
     $('copyUrl').disabled = !checked('webhook-enabled');
+    $('statusGenerateToken').disabled = !checked('status-enabled');
+    $('statusCopyUrl').disabled = !checked('status-enabled');
   }
 
   function updateWebhookUrl() {
@@ -710,8 +860,23 @@
       : 'Generate a token to produce the complete webhook URL.';
   }
 
+  function updateStatusUrl() {
+    const host = value('statusPublicHost') || window.location.hostname || localAddress || '127.0.0.1';
+    const port = boundedNumber(value('status-port'), 18583, 1, 65535, true);
+    const token = normalizeStatusToken(value('status-token'));
+    const url = token ? `http://${host}:${port}/api/aiseg2/status/${token}` : '';
+    setValue('status-url', url);
+    $('statusHelp').textContent = token
+      ? `GET ${url}`
+      : 'Generate a token to produce the Homepage customapi URL.';
+  }
+
   async function refreshDeviceSelect(group) {
     await refreshDeviceSelects([deviceSelect(group)]);
+  }
+
+  async function refreshDeviceSelectById(selectId) {
+    await refreshDeviceSelects([DEVICE_SELECTS.find(select => select.selectId === selectId)]);
   }
 
   async function refreshDeviceSelects(selects = DEVICE_SELECTS) {
@@ -775,6 +940,10 @@
     return String(token || '').trim().replace(/^\/?api\/webhook\//u, '');
   }
 
+  function normalizeStatusToken(token) {
+    return String(token || '').trim().replace(/^\/?api\/aiseg2\/status\//u, '');
+  }
+
   function generateToken() {
     const bytes = new Uint8Array(24);
     crypto.getRandomValues(bytes);
@@ -795,6 +964,22 @@
       $('webhook-url').select();
       document.execCommand('copy');
       homebridge.toast.success('Webhook URL copied.');
+    }
+  }
+
+  async function copyStatusUrl() {
+    const url = value('status-url');
+    if (!url) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(url);
+      homebridge.toast.success('Homepage status API URL copied.');
+    } catch {
+      $('status-url').select();
+      document.execCommand('copy');
+      homebridge.toast.success('Homepage status API URL copied.');
     }
   }
 
@@ -846,12 +1031,16 @@
   async function loadInitialData() {
     pluginConfig = await homebridge.getPluginConfig();
     config = mergeDefaults(DEFAULT_CONFIG, pluginConfig[0] || {});
-    const [tokenResult, addressResult] = await Promise.allSettled([
+    const [tokenResult, statusTokenResult, addressResult] = await Promise.allSettled([
       homebridge.request('/webhook-token', { config }),
+      homebridge.request('/status-token', { config }),
       homebridge.request('/local-address'),
     ]);
     if (!config.webhook.token && tokenResult.status === 'fulfilled' && tokenResult.value.token) {
       config.webhook.token = tokenResult.value.token;
+    }
+    if (!config.statusApi.token && statusTokenResult.status === 'fulfilled' && statusTokenResult.value.token) {
+      config.statusApi.token = statusTokenResult.value.token;
     }
     if (addressResult.status === 'fulfilled') {
       localAddress = addressResult.value.address || '';
@@ -871,10 +1060,18 @@
       scheduleConfigUpdate();
       homebridge.toast.info('Token generated. Save settings to apply it.');
     });
+    $('statusGenerateToken').addEventListener('click', () => {
+      setValue('status-token', generateToken());
+      updateStatusUrl();
+      scheduleConfigUpdate();
+      homebridge.toast.info('Status API token generated. Save settings to apply it.');
+    });
     $('copyUrl').addEventListener('click', copyUrl);
+    $('statusCopyUrl').addEventListener('click', copyStatusUrl);
     $('useBrowserLocation').addEventListener('click', useBrowserLocation);
     $('refreshLocks').addEventListener('click', () => refreshDeviceSelect('doorLocks'));
     $('refreshEcocutes').addEventListener('click', () => refreshDeviceSelect('ecocutes'));
+    $('refreshStatusEcocutes').addEventListener('click', () => refreshDeviceSelectById('statusEcocuteName'));
   }
 
   window.homebridge.addEventListener('ready', async () => {

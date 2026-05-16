@@ -158,6 +158,103 @@
           }
         }
       },
+      "statusApi": {
+        "title": "Homepage status API",
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "title": "Enable Homepage status API",
+            "type": "boolean",
+            "default": false,
+            "description": "Starts a read-only local JSON endpoint for Homepage customapi widgets. It does not create Apple Home accessories."
+          },
+          "port": {
+            "title": "Listen port",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "default": 18583
+          },
+          "bind": {
+            "title": "Bind address",
+            "type": "string",
+            "default": "0.0.0.0"
+          },
+          "publicHost": {
+            "title": "URL host",
+            "type": "string",
+            "default": "",
+            "description": "Host or IP used when showing the generated URL, for example 192.168.50.111."
+          },
+          "token": {
+            "title": "Secret token",
+            "type": "string",
+            "default": "",
+            "description": "Secret URL token. Leave empty to auto-generate and persist one."
+          },
+          "ecocuteName": {
+            "title": "EcoCute device",
+            "type": "string",
+            "default": "",
+            "description": "Optional AiSEG2 EcoCute display name. Leave empty to expose all EcoCute devices and use the first one for Homepage summary fields."
+          },
+          "weatherEnabled": {
+            "title": "Include weather forecast",
+            "type": "boolean",
+            "default": false,
+            "description": "Adds Open-Meteo forecast fields using shortwave radiation, cloud cover, and precipitation probability."
+          },
+          "latitude": {
+            "title": "Weather latitude",
+            "type": "number",
+            "minimum": -90,
+            "maximum": 90,
+            "default": 0
+          },
+          "longitude": {
+            "title": "Weather longitude",
+            "type": "number",
+            "minimum": -180,
+            "maximum": 180,
+            "default": 0
+          },
+          "forecastHours": {
+            "title": "Forecast lookahead (hours)",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 12,
+            "default": 3
+          },
+          "emergencyHotWaterLiters": {
+            "title": "Emergency hot water threshold (L)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5000,
+            "default": 200,
+            "description": "Homepage prediction only: marks emergency heating as needed below this remaining hot water level."
+          },
+          "nightFallbackTime": {
+            "title": "Night fallback time",
+            "type": "string",
+            "default": "01:00",
+            "description": "Homepage prediction only: wall-clock time shown for the cheap-rate fallback heating plan."
+          },
+          "nightFallbackHotWaterLiters": {
+            "title": "Night fallback hot water threshold (L)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5000,
+            "default": 350,
+            "description": "Homepage prediction only: night fallback is shown as pending below this remaining hot water level."
+          },
+          "nightFallbackWhenNextSolarBlocked": {
+            "title": "Night fallback when next solar window is blocked",
+            "type": "boolean",
+            "default": true,
+            "description": "Homepage prediction only: marks the 01:00 fallback as pending when the next solar heating window is forecast to be cloudy or rainy."
+          }
+        }
+      },
       "ecocuteSolarAutomation": {
         "title": "EcoCute solar start",
         "type": "object",
