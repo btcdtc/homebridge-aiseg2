@@ -66,18 +66,13 @@ interface StatusAutomationConfig {
   allowedEndTime: string;
   minSolarWatts: number;
   minBatteryPercent: number;
-  requireBatteryNotDischarging: boolean;
   minBatteryChargeWatts: number;
-  oncePerDay: boolean;
-  weatherEnabled: boolean;
   minForecastRadiationWatts: number;
   maxForecastCloudCover: number;
   maxForecastPrecipitationProbability: number;
   emergencyHotWaterLiters: number;
-  nightFallbackEnabled: boolean;
   nightFallbackTime: string;
   nightFallbackHotWaterLiters: number;
-  nightFallbackWhenNextSolarBlocked: boolean;
 }
 
 const DEFAULT_STATUS_PORT = 18583;
@@ -501,7 +496,7 @@ export class Aiseg2StatusServer {
         minSolarWatts: config.minSolarWatts,
         minBatteryPercent: config.minBatteryPercent,
         minBatteryChargeWatts: config.minBatteryChargeWatts,
-        requireBatteryNotDischarging: config.requireBatteryNotDischarging,
+        requireBatteryNotDischarging: true,
         minForecastRadiationWatts: config.minForecastRadiationWatts,
         maxForecastCloudCover: config.maxForecastCloudCover,
         maxForecastPrecipitationProbability: config.maxForecastPrecipitationProbability,
@@ -521,7 +516,7 @@ export class Aiseg2StatusServer {
     if (heating) {
       return wait('Already heating', 'EcoCute is already heating');
     }
-    if (config.oncePerDay && (state.lastStartedLocalDate === today || state.lastAnyStartedLocalDate === today)) {
+    if (state.lastStartedLocalDate === today || state.lastAnyStartedLocalDate === today) {
       return wait('Done today', 'EcoCute automation already started heating today');
     }
     if (!inWindow) {
@@ -533,7 +528,7 @@ export class Aiseg2StatusServer {
     if (batteryPercent === undefined || batteryPercent < config.minBatteryPercent) {
       return wait('Battery below threshold', `${this.formatNumber(batteryPercent, '%')} < ${config.minBatteryPercent}%`);
     }
-    if (config.requireBatteryNotDischarging && batteryDischarging) {
+    if (batteryDischarging) {
       return wait('Battery discharging', `battery power ${this.formatNumber(batteryWatts, 'W')}`);
     }
     if (config.minBatteryChargeWatts > 0 && (batteryWatts || 0) < config.minBatteryChargeWatts) {
@@ -582,16 +577,7 @@ export class Aiseg2StatusServer {
       window,
     });
 
-    if (!config.nightFallbackWhenNextSolarBlocked) {
-      return {
-        blocked: false,
-        unknown: false,
-        label: 'Next solar ignored',
-        reason: 'night fallback does not consider next-day solar forecast',
-        window,
-      };
-    }
-    if (!config.weatherEnabled) {
+    if (!this.config.weatherEnabled) {
       return unavailable('Next solar unknown', 'weather forecast checks are disabled');
     }
     if (!weather) {
@@ -640,7 +626,7 @@ export class Aiseg2StatusServer {
     const lowWater = hotWaterLiters !== undefined && hotWaterLiters < config.nightFallbackHotWaterLiters;
     const missedDaytime = state.lastStartedLocalDate !== daytimeDate;
     const nextSolarBlocked = nextSolar.blocked === true;
-    const shouldRun = config.nightFallbackEnabled && (missedDaytime || lowWater || nextSolarBlocked);
+    const shouldRun = config.enabled && (missedDaytime || lowWater || nextSolarBlocked);
     const reasons = [
       missedDaytime ? `no daytime solar heating recorded for ${daytimeDate}` : undefined,
       lowWater ? `${Math.round(hotWaterLiters || 0)}L < ${config.nightFallbackHotWaterLiters}L` : undefined,
@@ -655,12 +641,12 @@ export class Aiseg2StatusServer {
       thresholdLiters: config.nightFallbackHotWaterLiters,
       nextSolarBlocked,
       shouldRun,
-      label: config.nightFallbackEnabled
+      label: config.enabled
         ? shouldRun ? 'Night fallback pending' : 'Night fallback not needed'
         : 'Night fallback off',
       reason: shouldRun
         ? `${target}: ${reasons.join('; ')}`
-        : config.nightFallbackEnabled
+        : config.enabled
           ? notNeededReason
           : 'night fallback automation is disabled',
     };
@@ -692,7 +678,7 @@ export class Aiseg2StatusServer {
 
   private weatherPlanSkipReason(weather: Record<string, unknown> | undefined): string | undefined {
     const config = this.config.automation;
-    if (!config.weatherEnabled) {
+    if (!this.config.weatherEnabled) {
       return undefined;
     }
     if (!weather) {
@@ -1024,18 +1010,13 @@ export class Aiseg2StatusServer {
       allowedEndTime: '14:30',
       minSolarWatts: 2500,
       minBatteryPercent: 80,
-      requireBatteryNotDischarging: true,
       minBatteryChargeWatts: 0,
-      oncePerDay: true,
-      weatherEnabled: false,
       minForecastRadiationWatts: 350,
       maxForecastCloudCover: 85,
       maxForecastPrecipitationProbability: 70,
       emergencyHotWaterLiters: 200,
-      nightFallbackEnabled: false,
       nightFallbackTime: '01:00',
       nightFallbackHotWaterLiters: 350,
-      nightFallbackWhenNextSolarBlocked: true,
     };
   }
 
@@ -1047,14 +1028,7 @@ export class Aiseg2StatusServer {
     this.assignDefined(output, 'allowedEndTime', this.optionalTimeStringFrom(config.allowedEndTime));
     this.assignDefined(output, 'minSolarWatts', this.optionalNumberFrom(config.minSolarWatts, 0, 100000));
     this.assignDefined(output, 'minBatteryPercent', this.optionalNumberFrom(config.minBatteryPercent, 0, 100));
-    this.assignDefined(
-      output,
-      'requireBatteryNotDischarging',
-      this.optionalBooleanFrom(config.requireBatteryNotDischarging),
-    );
     this.assignDefined(output, 'minBatteryChargeWatts', this.optionalNumberFrom(config.minBatteryChargeWatts, 0, 100000));
-    this.assignDefined(output, 'oncePerDay', this.optionalBooleanFrom(config.oncePerDay));
-    this.assignDefined(output, 'weatherEnabled', this.optionalBooleanFrom(config.weatherEnabled));
     this.assignDefined(output, 'minForecastRadiationWatts', this.optionalNumberFrom(config.minForecastRadiationWatts, 0, 1200));
     this.assignDefined(output, 'maxForecastCloudCover', this.optionalNumberFrom(config.maxForecastCloudCover, 0, 100));
     this.assignDefined(
@@ -1063,14 +1037,8 @@ export class Aiseg2StatusServer {
       this.optionalNumberFrom(config.maxForecastPrecipitationProbability, 0, 100),
     );
     this.assignDefined(output, 'emergencyHotWaterLiters', this.optionalNumberFrom(config.emergencyHotWaterLiters, 0, 5000));
-    this.assignDefined(output, 'nightFallbackEnabled', this.optionalBooleanFrom(config.nightFallbackEnabled));
     this.assignDefined(output, 'nightFallbackTime', this.optionalTimeStringFrom(config.nightFallbackTime));
     this.assignDefined(output, 'nightFallbackHotWaterLiters', this.optionalNumberFrom(config.nightFallbackHotWaterLiters, 0, 5000));
-    this.assignDefined(
-      output,
-      'nightFallbackWhenNextSolarBlocked',
-      this.optionalBooleanFrom(config.nightFallbackWhenNextSolarBlocked),
-    );
     return output;
   }
 

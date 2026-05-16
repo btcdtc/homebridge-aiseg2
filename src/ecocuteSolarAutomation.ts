@@ -172,9 +172,8 @@ export class EcocuteSolarAutomation {
       return 'outside allowed time window';
     }
 
-    if (this.platform.ecocuteSolarAutomationBoolean('oncePerDay', true) &&
-      (this.state.lastStartedLocalDate === this.localDate(now) ||
-        this.state.lastAnyStartedLocalDate === this.localDate(now))) {
+    if (this.state.lastStartedLocalDate === this.localDate(now) ||
+      this.state.lastAnyStartedLocalDate === this.localDate(now)) {
       return 'already started today';
     }
 
@@ -192,8 +191,7 @@ export class EcocuteSolarAutomation {
       return `battery ${this.formatNumber(energy.batteryPercent, '%')} below ${minBatteryPercent}%`;
     }
 
-    if (this.platform.ecocuteSolarAutomationBoolean('requireBatteryNotDischarging', true) &&
-      energy.batteryDischarging === true) {
+    if (energy.batteryDischarging === true) {
       return `battery is discharging (${this.formatNumber(energy.batteryPowerWatts, 'W')})`;
     }
 
@@ -206,7 +204,7 @@ export class EcocuteSolarAutomation {
   }
 
   private async weatherForecast(nightTarget?: Date): Promise<WeatherForecast | undefined> {
-    if (!this.platform.ecocuteSolarAutomationBoolean('weatherEnabled', false)) {
+    if (!this.weatherConfigured()) {
       return undefined;
     }
 
@@ -313,10 +311,6 @@ export class EcocuteSolarAutomation {
   }
 
   private async nightFallbackDecision(now: Date, status: EcocuteStatus): Promise<StartDecision> {
-    if (!this.platform.ecocuteSolarAutomationBoolean('nightFallbackEnabled', false)) {
-      return { shouldStart: false };
-    }
-
     const timing = this.nightFallbackTiming(now);
     if (!timing.due) {
       return { shouldStart: false, skipReason: timing.skipReason };
@@ -333,8 +327,7 @@ export class EcocuteSolarAutomation {
     const lowWater = status.remainingWaterLiters !== undefined && status.remainingWaterLiters < threshold;
     let nextSolarBlockedReason: string | undefined;
 
-    if (!missedDaytime && !lowWater &&
-      this.platform.ecocuteSolarAutomationBoolean('nightFallbackWhenNextSolarBlocked', true)) {
+    if (!missedDaytime && !lowWater) {
       try {
         nextSolarBlockedReason = this.nextSolarBlockedReason(await this.weatherForecast(timing.target));
       } catch (error) {
@@ -400,6 +393,12 @@ export class EcocuteSolarAutomation {
     return reasons.length > 0
       ? `${weather.nextSolarWindowStart || 'next'}-${weather.nextSolarWindowEnd || 'solar'} ${reasons.join('; ')}`
       : undefined;
+  }
+
+  private weatherConfigured(): boolean {
+    const latitude = this.platform.ecocuteSolarAutomationFloat('latitude', Number.NaN, -90, 90);
+    const longitude = this.platform.ecocuteSolarAutomationFloat('longitude', Number.NaN, -180, 180);
+    return Number.isFinite(latitude) && Number.isFinite(longitude) && (latitude !== 0 || longitude !== 0);
   }
 
   private nextSolarRadiationSkipReason(weather: WeatherForecast): string | undefined {

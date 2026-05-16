@@ -908,6 +908,10 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
     max: number,
     integer = true,
   ): number {
+    if (value === undefined || value === null || value === '') {
+      return defaultValue;
+    }
+
     const parsed = typeof value === 'number' ? value : Number(String(value || '').trim());
     if (!Number.isFinite(parsed)) {
       return defaultValue;

@@ -265,10 +265,6 @@
         <label class="form-label" for="statusNightFallbackHotWaterLiters">Night fallback hot water threshold (L)</label>
         <input class="form-control" id="statusNightFallbackHotWaterLiters" type="number" inputmode="numeric" min="0" max="5000" step="10">
       </div>
-      <div class="form-check align-self-end mb-2">
-        <input class="form-check-input" id="statusNightFallbackWhenNextSolarBlocked" type="checkbox">
-        <label class="form-check-label" for="statusNightFallbackWhenNextSolarBlocked">Fallback at night if next solar window is blocked</label>
-      </div>
     </div>
     <div class="mt-3">
       <label class="form-label" for="status-token">Secret token</label>
@@ -343,28 +339,6 @@
         <label class="form-label" for="nightFallbackHotWaterLiters">Night fallback hot water threshold (L)</label>
         <input class="form-control" id="nightFallbackHotWaterLiters" type="number" inputmode="numeric" min="0" max="5000" step="10">
         <div class="form-text">Used only at the fallback time; low water is not an immediate trigger.</div>
-      </div>
-    </div>
-    <div class="aiseg2-checks mt-3">
-      <div class="form-check">
-        <input class="form-check-input" id="requireBatteryNotDischarging" type="checkbox">
-        <label class="form-check-label" for="requireBatteryNotDischarging">Do not start while battery is discharging</label>
-      </div>
-      <div class="form-check">
-        <input class="form-check-input" id="oncePerDay" type="checkbox">
-        <label class="form-check-label" for="oncePerDay">Start only once per day</label>
-      </div>
-      <div class="form-check">
-        <input class="form-check-input" id="nightFallbackEnabled" type="checkbox">
-        <label class="form-check-label" for="nightFallbackEnabled">Enable night fallback start</label>
-      </div>
-      <div class="form-check">
-        <input class="form-check-input" id="nightFallbackWhenNextSolarBlocked" type="checkbox">
-        <label class="form-check-label" for="nightFallbackWhenNextSolarBlocked">Fallback if next solar window is blocked</label>
-      </div>
-      <div class="form-check">
-        <input class="form-check-input" id="weatherEnabled" type="checkbox">
-        <label class="form-check-label" for="weatherEnabled">Check weather forecast before starting</label>
       </div>
     </div>
     <div class="aiseg2-grid mt-3">
@@ -515,7 +489,6 @@
       emergencyHotWaterLiters: 200,
       nightFallbackTime: '01:00',
       nightFallbackHotWaterLiters: 350,
-      nightFallbackWhenNextSolarBlocked: true,
     },
     ecocuteSolarAutomation: {
       enabled: false,
@@ -525,15 +498,10 @@
       allowedEndTime: '14:30',
       minSolarWatts: 2500,
       minBatteryPercent: 80,
-      requireBatteryNotDischarging: true,
       minBatteryChargeWatts: 0,
-      oncePerDay: true,
-      nightFallbackEnabled: false,
       nightFallbackTime: '01:00',
       nightFallbackHotWaterLiters: 350,
-      nightFallbackWhenNextSolarBlocked: true,
       checkIntervalSeconds: 300,
-      weatherEnabled: false,
       latitude: 0,
       longitude: 0,
       forecastHours: 3,
@@ -620,12 +588,6 @@
       max: 5000,
       requires: 'status-enabled',
     },
-    {
-      id: 'statusNightFallbackWhenNextSolarBlocked',
-      path: 'statusApi.nightFallbackWhenNextSolarBlocked',
-      type: 'boolean',
-      requires: 'status-enabled',
-    },
     { id: 'ecocute-auto-enabled', path: 'ecocuteSolarAutomation.enabled', type: 'boolean' },
     { id: 'ecocute-auto-dryRun', path: 'ecocuteSolarAutomation.dryRun', type: 'boolean', requires: 'ecocute-auto-enabled' },
     { id: 'ecocuteName', path: 'ecocuteSolarAutomation.ecocuteName', type: 'string', requires: 'ecocute-auto-enabled' },
@@ -633,7 +595,6 @@
     { id: 'allowedEndTime', path: 'ecocuteSolarAutomation.allowedEndTime', type: 'string', fallback: '14:30', requires: 'ecocute-auto-enabled' },
     { id: 'minSolarWatts', path: 'ecocuteSolarAutomation.minSolarWatts', type: 'integer', fallback: 2500, min: 0, max: 100000, requires: 'ecocute-auto-enabled' },
     { id: 'minBatteryPercent', path: 'ecocuteSolarAutomation.minBatteryPercent', type: 'integer', fallback: 80, min: 0, max: 100, requires: 'ecocute-auto-enabled' },
-    { id: 'requireBatteryNotDischarging', path: 'ecocuteSolarAutomation.requireBatteryNotDischarging', type: 'boolean', requires: 'ecocute-auto-enabled' },
     {
       id: 'minBatteryChargeWatts',
       path: 'ecocuteSolarAutomation.minBatteryChargeWatts',
@@ -643,14 +604,12 @@
       max: 100000,
       requires: 'ecocute-auto-enabled',
     },
-    { id: 'oncePerDay', path: 'ecocuteSolarAutomation.oncePerDay', type: 'boolean', requires: 'ecocute-auto-enabled' },
-    { id: 'nightFallbackEnabled', path: 'ecocuteSolarAutomation.nightFallbackEnabled', type: 'boolean', requires: 'ecocute-auto-enabled' },
     {
       id: 'nightFallbackTime',
       path: 'ecocuteSolarAutomation.nightFallbackTime',
       type: 'string',
       fallback: '01:00',
-      requires: 'nightFallbackEnabled',
+      requires: 'ecocute-auto-enabled',
     },
     {
       id: 'nightFallbackHotWaterLiters',
@@ -659,13 +618,7 @@
       fallback: 350,
       min: 0,
       max: 5000,
-      requires: 'nightFallbackEnabled',
-    },
-    {
-      id: 'nightFallbackWhenNextSolarBlocked',
-      path: 'ecocuteSolarAutomation.nightFallbackWhenNextSolarBlocked',
-      type: 'boolean',
-      requires: 'nightFallbackEnabled',
+      requires: 'ecocute-auto-enabled',
     },
     {
       id: 'checkIntervalSeconds',
@@ -676,10 +629,9 @@
       max: 3600,
       requires: 'ecocute-auto-enabled',
     },
-    { id: 'weatherEnabled', path: 'ecocuteSolarAutomation.weatherEnabled', type: 'boolean', requires: 'ecocute-auto-enabled' },
-    { id: 'latitude', path: 'ecocuteSolarAutomation.latitude', type: 'number', fallback: 0, min: -90, max: 90, requires: 'weatherEnabled' },
-    { id: 'longitude', path: 'ecocuteSolarAutomation.longitude', type: 'number', fallback: 0, min: -180, max: 180, requires: 'weatherEnabled' },
-    { id: 'forecastHours', path: 'ecocuteSolarAutomation.forecastHours', type: 'integer', fallback: 3, min: 1, max: 12, requires: 'weatherEnabled' },
+    { id: 'latitude', path: 'ecocuteSolarAutomation.latitude', type: 'number', fallback: 0, min: -90, max: 90, requires: 'ecocute-auto-enabled' },
+    { id: 'longitude', path: 'ecocuteSolarAutomation.longitude', type: 'number', fallback: 0, min: -180, max: 180, requires: 'ecocute-auto-enabled' },
+    { id: 'forecastHours', path: 'ecocuteSolarAutomation.forecastHours', type: 'integer', fallback: 3, min: 1, max: 12, requires: 'ecocute-auto-enabled' },
     {
       id: 'minForecastRadiationWatts',
       path: 'ecocuteSolarAutomation.minForecastRadiationWatts',
@@ -687,7 +639,7 @@
       fallback: 350,
       min: 0,
       max: 1200,
-      requires: 'weatherEnabled',
+      requires: 'ecocute-auto-enabled',
     },
     {
       id: 'maxForecastCloudCover',
@@ -696,7 +648,7 @@
       fallback: 85,
       min: 0,
       max: 100,
-      requires: 'weatherEnabled',
+      requires: 'ecocute-auto-enabled',
     },
     {
       id: 'maxForecastPrecipitationProbability',
@@ -705,7 +657,7 @@
       fallback: 70,
       min: 0,
       max: 100,
-      requires: 'weatherEnabled',
+      requires: 'ecocute-auto-enabled',
     },
     { id: 'webhook-enabled', path: 'webhook.enabled', type: 'boolean' },
     { id: 'webhook-method', path: 'webhook.method', type: 'string', normalize: normalizeMethod, requires: 'webhook-enabled' },
@@ -807,6 +759,12 @@
     }
     delete nextConfig.energy.exposeStatusSensors;
     delete nextConfig.ecocuteSolarAutomation.cooldownHours;
+    delete nextConfig.ecocuteSolarAutomation.requireBatteryNotDischarging;
+    delete nextConfig.ecocuteSolarAutomation.oncePerDay;
+    delete nextConfig.ecocuteSolarAutomation.nightFallbackEnabled;
+    delete nextConfig.ecocuteSolarAutomation.nightFallbackWhenNextSolarBlocked;
+    delete nextConfig.ecocuteSolarAutomation.weatherEnabled;
+    delete nextConfig.statusApi.nightFallbackWhenNextSolarBlocked;
     config = nextConfig;
     return nextConfig;
   }
@@ -885,7 +843,7 @@
       const controller = $(field.requires);
       $(field.id).disabled = controller.disabled || !controller.checked;
     }
-    $('useBrowserLocation').disabled = $('weatherEnabled').disabled || !checked('weatherEnabled');
+    $('useBrowserLocation').disabled = $('ecocute-auto-enabled').disabled || !checked('ecocute-auto-enabled');
     $('generateToken').disabled = !checked('webhook-enabled');
     $('copyUrl').disabled = !checked('webhook-enabled');
     $('statusGenerateToken').disabled = !checked('status-enabled');
@@ -1043,7 +1001,6 @@
     $('useBrowserLocation').disabled = true;
     navigator.geolocation.getCurrentPosition(
       position => {
-        setChecked('weatherEnabled', true);
         setValue('latitude', position.coords.latitude.toFixed(6));
         setValue('longitude', position.coords.longitude.toFixed(6));
         scheduleConfigUpdate();

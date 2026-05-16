@@ -246,12 +246,6 @@
             "maximum": 5000,
             "default": 350,
             "description": "Homepage prediction only: night fallback is shown as pending below this remaining hot water level."
-          },
-          "nightFallbackWhenNextSolarBlocked": {
-            "title": "Night fallback when next solar window is blocked",
-            "type": "boolean",
-            "default": true,
-            "description": "Homepage prediction only: marks the 01:00 fallback as pending when the next solar heating window is forecast to be cloudy or rainy."
           }
         }
       },
@@ -263,7 +257,7 @@
             "title": "Enable automatic starts",
             "type": "boolean",
             "default": false,
-            "description": "Automatically starts manual EcoCute water heating for daytime solar rules and enabled night fallback rules. It never sends stop."
+            "description": "Automatically starts manual EcoCute water heating for daytime solar rules and the 01:00 fallback. It never sends stop."
           },
           "dryRun": {
             "title": "Log only, do not start heating",
@@ -303,11 +297,6 @@
             "maximum": 100,
             "default": 80
           },
-          "requireBatteryNotDischarging": {
-            "title": "Do not start while battery is discharging",
-            "type": "boolean",
-            "default": true
-          },
           "minBatteryChargeWatts": {
             "title": "Minimum battery charging power (W)",
             "type": "integer",
@@ -315,17 +304,6 @@
             "maximum": 100000,
             "default": 0,
             "description": "Optional stricter gate. Keep 0 to allow standby/low charging when other conditions are good."
-          },
-          "oncePerDay": {
-            "title": "Start only once per day",
-            "type": "boolean",
-            "default": true
-          },
-          "nightFallbackEnabled": {
-            "title": "Enable 01:00 night fallback",
-            "type": "boolean",
-            "default": false,
-            "description": "At the configured fallback time, starts manual heating if daytime solar heating was missed, remaining hot water is below the night threshold, or the next solar window is forecast to be blocked."
           },
           "nightFallbackTime": {
             "title": "Night fallback time",
@@ -341,24 +319,12 @@
             "default": 350,
             "description": "At the night fallback time, starts heating when remaining hot water is below this level. The plugin does not do immediate low-water emergency starts."
           },
-          "nightFallbackWhenNextSolarBlocked": {
-            "title": "Fallback at night if next solar window is blocked",
-            "type": "boolean",
-            "default": true,
-            "description": "At the night fallback time, starts heating when the next solar heating window is forecast to be cloudy or rainy."
-          },
           "checkIntervalSeconds": {
             "title": "Check interval (seconds)",
             "type": "integer",
             "minimum": 60,
             "maximum": 3600,
             "default": 300
-          },
-          "weatherEnabled": {
-            "title": "Check weather forecast before starting",
-            "type": "boolean",
-            "default": false,
-            "description": "Adds an Open-Meteo forecast gate using shortwave radiation, cloud cover, and precipitation probability."
           },
           "latitude": {
             "title": "Weather latitude",
