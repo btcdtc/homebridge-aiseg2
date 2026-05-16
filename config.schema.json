@@ -226,12 +226,12 @@
             "default": 3
           },
           "emergencyHotWaterLiters": {
-            "title": "Emergency hot water threshold (L)",
+            "title": "Low hot water warning threshold (L)",
             "type": "integer",
             "minimum": 0,
             "maximum": 5000,
             "default": 200,
-            "description": "Homepage prediction only: marks emergency heating as needed below this remaining hot water level."
+            "description": "Homepage display only: marks hot water as low below this remaining hot water level. The plugin does not immediately start heating from this threshold."
           },
           "nightFallbackTime": {
             "title": "Night fallback time",
@@ -260,10 +260,10 @@
         "type": "object",
         "properties": {
           "enabled": {
-            "title": "Enable automatic start",
+            "title": "Enable automatic starts",
             "type": "boolean",
             "default": false,
-            "description": "Automatically starts manual EcoCute water heating when solar, battery, weather, and time-window conditions are met. It never sends stop."
+            "description": "Automatically starts manual EcoCute water heating for daytime solar rules and enabled night fallback rules. It never sends stop."
           },
           "dryRun": {
             "title": "Log only, do not start heating",
@@ -320,6 +320,32 @@
             "title": "Start only once per day",
             "type": "boolean",
             "default": true
+          },
+          "nightFallbackEnabled": {
+            "title": "Enable 01:00 night fallback",
+            "type": "boolean",
+            "default": false,
+            "description": "At the configured fallback time, starts manual heating if daytime solar heating was missed, remaining hot water is below the night threshold, or the next solar window is forecast to be blocked."
+          },
+          "nightFallbackTime": {
+            "title": "Night fallback time",
+            "type": "string",
+            "default": "01:00",
+            "description": "Local HH:mm time for the cheap-rate fallback heating start."
+          },
+          "nightFallbackHotWaterLiters": {
+            "title": "Night fallback hot water threshold (L)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 5000,
+            "default": 350,
+            "description": "At the night fallback time, starts heating when remaining hot water is below this level. The plugin does not do immediate low-water emergency starts."
+          },
+          "nightFallbackWhenNextSolarBlocked": {
+            "title": "Fallback at night if next solar window is blocked",
+            "type": "boolean",
+            "default": true,
+            "description": "At the night fallback time, starts heating when the next solar heating window is forecast to be cloudy or rainy."
           },
           "checkIntervalSeconds": {
             "title": "Check interval (seconds)",

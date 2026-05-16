@@ -254,7 +254,7 @@
         <input class="form-control" id="statusForecastHours" type="number" inputmode="numeric" min="1" max="12" step="1">
       </div>
       <div>
-        <label class="form-label" for="statusEmergencyHotWaterLiters">Emergency hot water threshold (L)</label>
+        <label class="form-label" for="statusEmergencyHotWaterLiters">Low hot water warning threshold (L)</label>
         <input class="form-control" id="statusEmergencyHotWaterLiters" type="number" inputmode="numeric" min="0" max="5000" step="10">
       </div>
       <div>
@@ -289,11 +289,11 @@
 
   <section class="aiseg2-section">
     <div class="aiseg2-heading">
-      <h2>EcoCute Solar Start</h2>
+      <h2>EcoCute Solar / Night Start</h2>
       <button class="btn btn-outline-secondary btn-sm" id="refreshEcocutes" type="button">Refresh EcoCute list</button>
     </div>
     <div class="aiseg2-muted mb-3">
-      Starts manual water heating when solar, battery, weather, and time window rules pass. The plugin does not send stop.
+      Starts manual water heating when daytime solar rules pass, or at the configured night fallback time. The plugin does not send stop.
     </div>
     <div class="aiseg2-grid">
       <div class="form-check align-self-end mb-2">
@@ -335,6 +335,15 @@
         <label class="form-label" for="checkIntervalSeconds">Check interval (seconds)</label>
         <input class="form-control" id="checkIntervalSeconds" type="number" inputmode="numeric" min="60" max="3600" step="60">
       </div>
+      <div>
+        <label class="form-label" for="nightFallbackTime">Night fallback time</label>
+        <input class="form-control" id="nightFallbackTime" type="time" step="60">
+      </div>
+      <div>
+        <label class="form-label" for="nightFallbackHotWaterLiters">Night fallback hot water threshold (L)</label>
+        <input class="form-control" id="nightFallbackHotWaterLiters" type="number" inputmode="numeric" min="0" max="5000" step="10">
+        <div class="form-text">Used only at the fallback time; low water is not an immediate trigger.</div>
+      </div>
     </div>
     <div class="aiseg2-checks mt-3">
       <div class="form-check">
@@ -344,6 +353,14 @@
       <div class="form-check">
         <input class="form-check-input" id="oncePerDay" type="checkbox">
         <label class="form-check-label" for="oncePerDay">Start only once per day</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" id="nightFallbackEnabled" type="checkbox">
+        <label class="form-check-label" for="nightFallbackEnabled">Enable night fallback start</label>
+      </div>
+      <div class="form-check">
+        <input class="form-check-input" id="nightFallbackWhenNextSolarBlocked" type="checkbox">
+        <label class="form-check-label" for="nightFallbackWhenNextSolarBlocked">Fallback if next solar window is blocked</label>
       </div>
       <div class="form-check">
         <input class="form-check-input" id="weatherEnabled" type="checkbox">
@@ -511,6 +528,10 @@
       requireBatteryNotDischarging: true,
       minBatteryChargeWatts: 0,
       oncePerDay: true,
+      nightFallbackEnabled: false,
+      nightFallbackTime: '01:00',
+      nightFallbackHotWaterLiters: 350,
+      nightFallbackWhenNextSolarBlocked: true,
       checkIntervalSeconds: 300,
       weatherEnabled: false,
       latitude: 0,
@@ -623,6 +644,29 @@
       requires: 'ecocute-auto-enabled',
     },
     { id: 'oncePerDay', path: 'ecocuteSolarAutomation.oncePerDay', type: 'boolean', requires: 'ecocute-auto-enabled' },
+    { id: 'nightFallbackEnabled', path: 'ecocuteSolarAutomation.nightFallbackEnabled', type: 'boolean', requires: 'ecocute-auto-enabled' },
+    {
+      id: 'nightFallbackTime',
+      path: 'ecocuteSolarAutomation.nightFallbackTime',
+      type: 'string',
+      fallback: '01:00',
+      requires: 'nightFallbackEnabled',
+    },
+    {
+      id: 'nightFallbackHotWaterLiters',
+      path: 'ecocuteSolarAutomation.nightFallbackHotWaterLiters',
+      type: 'integer',
+      fallback: 350,
+      min: 0,
+      max: 5000,
+      requires: 'nightFallbackEnabled',
+    },
+    {
+      id: 'nightFallbackWhenNextSolarBlocked',
+      path: 'ecocuteSolarAutomation.nightFallbackWhenNextSolarBlocked',
+      type: 'boolean',
+      requires: 'nightFallbackEnabled',
+    },
     {
       id: 'checkIntervalSeconds',
       path: 'ecocuteSolarAutomation.checkIntervalSeconds',

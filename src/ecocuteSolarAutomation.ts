@@ -9,14 +9,30 @@ import { Aiseg2Platform } from './platform';
 
 
 interface AutomationState {
+  lastAnyStartedAt?: string;
+  lastAnyStartedLocalDate?: string;
   lastStartedAt?: string;
   lastStartedLocalDate?: string;
+  lastNightFallbackStartedAt?: string;
+  lastNightFallbackLocalDate?: string;
 }
 
 interface WeatherForecast {
   maxShortwaveRadiationWatts?: number;
   averageCloudCover?: number;
   maxPrecipitationProbability?: number;
+  nextSolarWindowStart?: string;
+  nextSolarWindowEnd?: string;
+  nextSolarMaxShortwaveRadiationWatts?: number;
+  nextSolarAverageCloudCover?: number;
+  nextSolarMaxPrecipitationProbability?: number;
+}
+
+interface StartDecision {
+  shouldStart: boolean;
+  summary?: string;
+  skipReason?: string;
+  stateUpdate?: Partial<AutomationState>;
 }
 
 export class EcocuteSolarAutomation {
@@ -71,6 +87,27 @@ export class EcocuteSolarAutomation {
 
   private async evaluateOnce(reason: string): Promise<void> {
     const now = new Date();
+
+    const device = await this.resolveEcocuteDevice();
+    if (!device) {
+      return;
+    }
+
+    const status = await this.platform.client.getEcocuteStatus(device);
+    if (this.ecocuteAlreadyHeating(status)) {
+      this.platform.log.info(`EcoCute solar automation skipped ${reason}: '${device.displayName}' is already heating`);
+      return;
+    }
+
+    const nightFallback = await this.nightFallbackDecision(now, status);
+    if (nightFallback.shouldStart && nightFallback.summary && nightFallback.stateUpdate) {
+      await this.startManualHeating(device, now, nightFallback.summary, nightFallback.stateUpdate);
+      return;
+    }
+    if (nightFallback.skipReason) {
+      this.platform.log.debug(`EcoCute night fallback skipped ${reason}: ${nightFallback.skipReason}`);
+    }
+
     const skipReason = this.timeSkipReason(now);
     if (skipReason) {
       this.platform.log.debug(`EcoCute solar automation skipped ${reason}: ${skipReason}`);
@@ -91,18 +128,21 @@ export class EcocuteSolarAutomation {
       return;
     }
 
-    const device = await this.resolveEcocuteDevice();
-    if (!device) {
-      return;
-    }
-
-    const status = await this.platform.client.getEcocuteStatus(device);
-    if (this.ecocuteAlreadyHeating(status)) {
-      this.platform.log.info(`EcoCute solar automation skipped ${reason}: '${device.displayName}' is already heating`);
-      return;
-    }
-
     const summary = this.decisionSummary(energy, weather);
+    await this.startManualHeating(device, now, summary, {
+      lastAnyStartedAt: now.toISOString(),
+      lastAnyStartedLocalDate: this.localDate(now),
+      lastStartedAt: now.toISOString(),
+      lastStartedLocalDate: this.localDate(now),
+    });
+  }
+
+  private async startManualHeating(
+    device: EcocuteDevice,
+    now: Date,
+    summary: string,
+    stateUpdate: Partial<AutomationState>,
+  ): Promise<void> {
     if (this.platform.ecocuteSolarAutomationDryRun) {
       this.platform.log.info(`EcoCute solar automation dry-run would start '${device.displayName}': ${summary}`);
       return;
@@ -119,8 +159,10 @@ export class EcocuteSolarAutomation {
     );
 
     this.state = {
-      lastStartedAt: now.toISOString(),
-      lastStartedLocalDate: this.localDate(now),
+      ...this.state,
+      ...stateUpdate,
+      lastAnyStartedAt: stateUpdate.lastAnyStartedAt || now.toISOString(),
+      lastAnyStartedLocalDate: stateUpdate.lastAnyStartedLocalDate || this.localDate(now),
     };
     this.saveState();
   }
@@ -131,7 +173,8 @@ export class EcocuteSolarAutomation {
     }
 
     if (this.platform.ecocuteSolarAutomationBoolean('oncePerDay', true) &&
-      this.state.lastStartedLocalDate === this.localDate(now)) {
+      (this.state.lastStartedLocalDate === this.localDate(now) ||
+        this.state.lastAnyStartedLocalDate === this.localDate(now))) {
       return 'already started today';
     }
 
@@ -162,7 +205,7 @@ export class EcocuteSolarAutomation {
     return undefined;
   }
 
-  private async weatherForecast(): Promise<WeatherForecast | undefined> {
+  private async weatherForecast(nightTarget?: Date): Promise<WeatherForecast | undefined> {
     if (!this.platform.ecocuteSolarAutomationBoolean('weatherEnabled', false)) {
       return undefined;
     }
@@ -178,7 +221,7 @@ export class EcocuteSolarAutomation {
     url.searchParams.set('latitude', String(latitude));
     url.searchParams.set('longitude', String(longitude));
     url.searchParams.set('hourly', 'shortwave_radiation,cloud_cover,precipitation_probability');
-    url.searchParams.set('forecast_days', '1');
+    url.searchParams.set('forecast_days', '3');
     url.searchParams.set('timezone', 'Asia/Tokyo');
     url.searchParams.set('timeformat', 'unixtime');
 
@@ -205,11 +248,21 @@ export class EcocuteSolarAutomation {
       .map((time, index) => ({ time: this.forecastTimeMs(time), index }))
       .filter(item => item.time >= now - 60 * 60 * 1000 && item.time <= end)
       .map(item => item.index);
+    const nextSolarWindow = this.nextSolarWindowAfterNight(new Date(now), nightTarget);
+    const nextSolarIndexes = hourly.time
+      .map((time, index) => ({ time: this.forecastTimeMs(time), index }))
+      .filter(item => item.time >= nextSolarWindow.start.getTime() && item.time <= nextSolarWindow.end.getTime())
+      .map(item => item.index);
 
     return {
       maxShortwaveRadiationWatts: this.maxAtIndexes(hourly.shortwave_radiation, indexes),
       averageCloudCover: this.averageAtIndexes(hourly.cloud_cover, indexes),
       maxPrecipitationProbability: this.maxAtIndexes(hourly.precipitation_probability, indexes),
+      nextSolarWindowStart: this.localDateTime(nextSolarWindow.start),
+      nextSolarWindowEnd: this.localDateTime(nextSolarWindow.end),
+      nextSolarMaxShortwaveRadiationWatts: this.maxAtIndexes(hourly.shortwave_radiation, nextSolarIndexes),
+      nextSolarAverageCloudCover: this.averageAtIndexes(hourly.cloud_cover, nextSolarIndexes),
+      nextSolarMaxPrecipitationProbability: this.maxAtIndexes(hourly.precipitation_probability, nextSolarIndexes),
     };
   }
 
@@ -257,6 +310,129 @@ export class EcocuteSolarAutomation {
 
   private ecocuteAlreadyHeating(status: EcocuteStatus): boolean {
     return status.waterHeatingStatus === '0x41';
+  }
+
+  private async nightFallbackDecision(now: Date, status: EcocuteStatus): Promise<StartDecision> {
+    if (!this.platform.ecocuteSolarAutomationBoolean('nightFallbackEnabled', false)) {
+      return { shouldStart: false };
+    }
+
+    const timing = this.nightFallbackTiming(now);
+    if (!timing.due) {
+      return { shouldStart: false, skipReason: timing.skipReason };
+    }
+
+    const targetDate = this.localDate(timing.target);
+    if (this.state.lastNightFallbackLocalDate === targetDate) {
+      return { shouldStart: false, skipReason: `night fallback already started for ${targetDate}` };
+    }
+
+    const daytimeDate = this.fallbackDaytimeLocalDate(timing.target);
+    const missedDaytime = this.state.lastStartedLocalDate !== daytimeDate;
+    const threshold = this.platform.ecocuteSolarAutomationNumber('nightFallbackHotWaterLiters', 350, 0, 5000);
+    const lowWater = status.remainingWaterLiters !== undefined && status.remainingWaterLiters < threshold;
+    let nextSolarBlockedReason: string | undefined;
+
+    if (!missedDaytime && !lowWater &&
+      this.platform.ecocuteSolarAutomationBoolean('nightFallbackWhenNextSolarBlocked', true)) {
+      try {
+        nextSolarBlockedReason = this.nextSolarBlockedReason(await this.weatherForecast(timing.target));
+      } catch (error) {
+        return {
+          shouldStart: false,
+          skipReason: `next solar forecast unavailable: ${this.formatError(error)}`,
+        };
+      }
+    }
+
+    const reasons = [
+      missedDaytime ? `no daytime solar heating recorded for ${daytimeDate}` : undefined,
+      lowWater ? `${Math.round(status.remainingWaterLiters || 0)}L below ${threshold}L at night fallback` : undefined,
+      nextSolarBlockedReason ? `next solar window blocked: ${nextSolarBlockedReason}` : undefined,
+    ].filter(Boolean);
+
+    if (reasons.length === 0) {
+      return {
+        shouldStart: false,
+        skipReason: `night fallback not needed for ${targetDate}`,
+      };
+    }
+
+    return {
+      shouldStart: true,
+      summary: `nightFallback=${this.localDateTime(timing.target)}, ${reasons.join('; ')}`,
+      stateUpdate: {
+        lastAnyStartedAt: now.toISOString(),
+        lastAnyStartedLocalDate: this.localDate(now),
+        lastNightFallbackStartedAt: now.toISOString(),
+        lastNightFallbackLocalDate: targetDate,
+      },
+    };
+  }
+
+  private nightFallbackTiming(now: Date): { due: boolean; target: Date; skipReason?: string } {
+    const time = this.platform.ecocuteSolarAutomationString('nightFallbackTime', '01:00');
+    const target = this.currentOrPreviousLocalTimeDate(now, time);
+    const elapsedMs = now.getTime() - target.getTime();
+    const windowMs = (this.platform.ecocuteSolarAutomationNumber('checkIntervalSeconds', 300, 60, 3600) + 60) * 1000;
+    if (elapsedMs < 0 || elapsedMs > windowMs) {
+      return {
+        due: false,
+        target,
+        skipReason: `outside night fallback window ${this.localDateTime(target)} + ${Math.round(windowMs / 60000)}m`,
+      };
+    }
+
+    return { due: true, target };
+  }
+
+  private nextSolarBlockedReason(weather: WeatherForecast | undefined): string | undefined {
+    if (!weather) {
+      return undefined;
+    }
+
+    const reasons = [
+      this.nextSolarRadiationSkipReason(weather),
+      this.nextSolarCloudSkipReason(weather),
+      this.nextSolarPrecipitationSkipReason(weather),
+    ].filter(Boolean);
+
+    return reasons.length > 0
+      ? `${weather.nextSolarWindowStart || 'next'}-${weather.nextSolarWindowEnd || 'solar'} ${reasons.join('; ')}`
+      : undefined;
+  }
+
+  private nextSolarRadiationSkipReason(weather: WeatherForecast): string | undefined {
+    if (weather.nextSolarMaxShortwaveRadiationWatts === undefined) {
+      return undefined;
+    }
+
+    const minRadiation = this.platform.ecocuteSolarAutomationNumber('minForecastRadiationWatts', 350, 0, 1200);
+    return weather.nextSolarMaxShortwaveRadiationWatts < minRadiation
+      ? `radiation ${this.formatNumber(weather.nextSolarMaxShortwaveRadiationWatts, 'W/m2')} below ${minRadiation}W/m2`
+      : undefined;
+  }
+
+  private nextSolarCloudSkipReason(weather: WeatherForecast): string | undefined {
+    if (weather.nextSolarAverageCloudCover === undefined) {
+      return undefined;
+    }
+
+    const maxCloudCover = this.platform.ecocuteSolarAutomationNumber('maxForecastCloudCover', 85, 0, 100);
+    return weather.nextSolarAverageCloudCover > maxCloudCover
+      ? `cloud cover ${Math.round(weather.nextSolarAverageCloudCover)}% above ${maxCloudCover}%`
+      : undefined;
+  }
+
+  private nextSolarPrecipitationSkipReason(weather: WeatherForecast): string | undefined {
+    if (weather.nextSolarMaxPrecipitationProbability === undefined) {
+      return undefined;
+    }
+
+    const maxPrecipitation = this.platform.ecocuteSolarAutomationNumber('maxForecastPrecipitationProbability', 70, 0, 100);
+    return weather.nextSolarMaxPrecipitationProbability > maxPrecipitation
+      ? `precipitation ${Math.round(weather.nextSolarMaxPrecipitationProbability)}% above ${maxPrecipitation}%`
+      : undefined;
   }
 
   private decisionSummary(energy: EnergyStatus, weather: WeatherForecast | undefined): string {
@@ -316,6 +492,78 @@ export class EcocuteSolarAutomation {
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  }
+
+  private localDateTime(date: Date): string {
+    return `${this.localDate(date)} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+  }
+
+  private currentOrPreviousLocalTimeDate(now: Date, time: string): Date {
+    const minutes = this.parseTimeMinutes(time, 60);
+    const target = new Date(now);
+    target.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+    if (target.getTime() > now.getTime()) {
+      target.setDate(target.getDate() - 1);
+    }
+
+    return target;
+  }
+
+  private nextLocalTimeDate(now: Date, time: string): Date {
+    const minutes = this.parseTimeMinutes(time, 60);
+    const target = new Date(now);
+    target.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+    if (target.getTime() <= now.getTime()) {
+      target.setDate(target.getDate() + 1);
+    }
+
+    return target;
+  }
+
+  private nextSolarWindowAfterNight(now: Date, nightTarget?: Date): { start: Date; end: Date } {
+    const fallbackTime = this.platform.ecocuteSolarAutomationString('nightFallbackTime', '01:00');
+    const night = nightTarget ? new Date(nightTarget) : this.nextLocalTimeDate(now, fallbackTime);
+    const startMinutes = this.parseTimeMinutes(this.platform.ecocuteSolarAutomationString('allowedStartTime', '09:30'), 570);
+    const endMinutes = this.parseTimeMinutes(this.platform.ecocuteSolarAutomationString('allowedEndTime', '14:30'), startMinutes);
+    const start = new Date(night);
+    start.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
+    if (start.getTime() <= night.getTime()) {
+      start.setDate(start.getDate() + 1);
+    }
+
+    const end = new Date(start);
+    end.setHours(Math.floor(endMinutes / 60), endMinutes % 60, 0, 0);
+    if (end.getTime() <= start.getTime()) {
+      end.setDate(end.getDate() + 1);
+    }
+
+    return { start, end };
+  }
+
+  private fallbackDaytimeLocalDate(nightTarget: Date): string {
+    const startMinutes = this.parseTimeMinutes(this.platform.ecocuteSolarAutomationString('allowedStartTime', '09:30'), 570);
+    const daytime = new Date(nightTarget);
+    daytime.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
+    if (daytime.getTime() > nightTarget.getTime()) {
+      daytime.setDate(daytime.getDate() - 1);
+    }
+
+    return this.localDate(daytime);
+  }
+
+  private parseTimeMinutes(value: string, defaultMinutes: number): number {
+    const match = /^(\d{1,2}):(\d{2})$/u.exec(value.trim());
+    if (!match) {
+      return defaultMinutes;
+    }
+
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+      return defaultMinutes;
+    }
+
+    return (hour * 60) + minute;
   }
 
   private formatNumber(value: number | undefined, unit: string): string {

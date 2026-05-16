@@ -30,8 +30,12 @@ interface StatusApiSecretFile {
 }
 
 interface AutomationState {
+  lastAnyStartedAt?: string;
+  lastAnyStartedLocalDate?: string;
   lastStartedAt?: string;
   lastStartedLocalDate?: string;
+  lastNightFallbackStartedAt?: string;
+  lastNightFallbackLocalDate?: string;
 }
 
 interface WeatherForecast {
@@ -70,6 +74,7 @@ interface StatusAutomationConfig {
   maxForecastCloudCover: number;
   maxForecastPrecipitationProbability: number;
   emergencyHotWaterLiters: number;
+  nightFallbackEnabled: boolean;
   nightFallbackTime: string;
   nightFallbackHotWaterLiters: number;
   nightFallbackWhenNextSolarBlocked: boolean;
@@ -443,6 +448,7 @@ export class Aiseg2StatusServer {
     const now = new Date();
     const state = this.automationState();
     const today = this.localDate(now);
+    const alreadyStartedToday = state.lastStartedLocalDate === today || state.lastAnyStartedLocalDate === today;
     const hotWaterLiters = this.numberValue(ecocute?.remainingHotWaterLiters);
     const heating = ecocute?.waterHeatingStatusLabel === 'heating';
     const solar = this.solarHeatingPlan(now, state, energy, weather, heating);
@@ -457,10 +463,13 @@ export class Aiseg2StatusServer {
       nextSolar,
       emergency,
       nightFallback,
+      lastAnyStartedAt: state.lastAnyStartedAt,
+      lastAnyStartedLocalDate: state.lastAnyStartedLocalDate,
       lastStartedAt: state.lastStartedAt,
       lastStartedLocalDate: state.lastStartedLocalDate,
-      alreadyStartedToday: state.lastStartedLocalDate === today,
-      predictionOnly: true,
+      lastNightFallbackStartedAt: state.lastNightFallbackStartedAt,
+      lastNightFallbackLocalDate: state.lastNightFallbackLocalDate,
+      alreadyStartedToday,
     };
   }
 
@@ -512,8 +521,8 @@ export class Aiseg2StatusServer {
     if (heating) {
       return wait('Already heating', 'EcoCute is already heating');
     }
-    if (config.oncePerDay && state.lastStartedLocalDate === today) {
-      return wait('Done today', 'Solar automation already started heating today');
+    if (config.oncePerDay && (state.lastStartedLocalDate === today || state.lastAnyStartedLocalDate === today)) {
+      return wait('Done today', 'EcoCute automation already started heating today');
     }
     if (!inWindow) {
       return wait('Waiting for solar window', `Next solar window starts ${nextWindowStart}`);
@@ -551,7 +560,7 @@ export class Aiseg2StatusServer {
     return {
       thresholdLiters: threshold,
       active,
-      label: active ? 'Emergency heat needed' : 'Emergency OK',
+      label: active ? 'Low hot water warning' : 'Hot water OK',
       reason: hotWaterLiters === undefined
         ? 'hot water level is unknown'
         : active
@@ -625,17 +634,20 @@ export class Aiseg2StatusServer {
     nextSolar: Record<string, unknown>,
   ): Record<string, unknown> {
     const config = this.config.automation;
-    const today = this.localDate(now);
+    const targetDate = this.nextLocalTimeDate(now, config.nightFallbackTime);
+    const target = this.localDateTime(targetDate);
+    const daytimeDate = this.fallbackDaytimeLocalDate(targetDate);
     const lowWater = hotWaterLiters !== undefined && hotWaterLiters < config.nightFallbackHotWaterLiters;
-    const missedDaytime = state.lastStartedLocalDate !== today;
+    const missedDaytime = state.lastStartedLocalDate !== daytimeDate;
     const nextSolarBlocked = nextSolar.blocked === true;
-    const shouldRun = missedDaytime || lowWater || nextSolarBlocked;
-    const target = this.nextLocalTime(now, config.nightFallbackTime);
+    const shouldRun = config.nightFallbackEnabled && (missedDaytime || lowWater || nextSolarBlocked);
     const reasons = [
-      missedDaytime ? 'no daytime solar heating recorded today' : undefined,
+      missedDaytime ? `no daytime solar heating recorded for ${daytimeDate}` : undefined,
       lowWater ? `${Math.round(hotWaterLiters || 0)}L < ${config.nightFallbackHotWaterLiters}L` : undefined,
       nextSolarBlocked ? `tomorrow solar heat is blocked: ${nextSolar.reason}` : undefined,
     ].filter(Boolean);
+    const notNeededReason = `${target}: daytime heating recorded, hot water is above ` +
+      `${config.nightFallbackHotWaterLiters}L, and tomorrow solar looks usable`;
 
     return {
       time: config.nightFallbackTime,
@@ -643,10 +655,14 @@ export class Aiseg2StatusServer {
       thresholdLiters: config.nightFallbackHotWaterLiters,
       nextSolarBlocked,
       shouldRun,
-      label: shouldRun ? 'Night fallback pending' : 'Night fallback not needed',
+      label: config.nightFallbackEnabled
+        ? shouldRun ? 'Night fallback pending' : 'Night fallback not needed'
+        : 'Night fallback off',
       reason: shouldRun
         ? `${target}: ${reasons.join('; ')}`
-        : `${target}: daytime heating recorded, hot water is above ${config.nightFallbackHotWaterLiters}L, and tomorrow solar looks usable`,
+        : config.nightFallbackEnabled
+          ? notNeededReason
+          : 'night fallback automation is disabled',
     };
   }
 
@@ -924,6 +940,18 @@ export class Aiseg2StatusServer {
     return { start, end };
   }
 
+  private fallbackDaytimeLocalDate(nightTarget: Date): string {
+    const config = this.config.automation;
+    const startMinutes = this.parseTimeMinutes(config.allowedStartTime, 0);
+    const daytime = new Date(nightTarget);
+    daytime.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
+    if (daytime.getTime() > nightTarget.getTime()) {
+      daytime.setDate(daytime.getDate() - 1);
+    }
+
+    return this.localDate(daytime);
+  }
+
   private localDateTime(date: Date): string {
     return `${this.localDate(date)} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
   }
@@ -1004,6 +1032,7 @@ export class Aiseg2StatusServer {
       maxForecastCloudCover: 85,
       maxForecastPrecipitationProbability: 70,
       emergencyHotWaterLiters: 200,
+      nightFallbackEnabled: false,
       nightFallbackTime: '01:00',
       nightFallbackHotWaterLiters: 350,
       nightFallbackWhenNextSolarBlocked: true,
@@ -1034,6 +1063,7 @@ export class Aiseg2StatusServer {
       this.optionalNumberFrom(config.maxForecastPrecipitationProbability, 0, 100),
     );
     this.assignDefined(output, 'emergencyHotWaterLiters', this.optionalNumberFrom(config.emergencyHotWaterLiters, 0, 5000));
+    this.assignDefined(output, 'nightFallbackEnabled', this.optionalBooleanFrom(config.nightFallbackEnabled));
     this.assignDefined(output, 'nightFallbackTime', this.optionalTimeStringFrom(config.nightFallbackTime));
     this.assignDefined(output, 'nightFallbackHotWaterLiters', this.optionalNumberFrom(config.nightFallbackHotWaterLiters, 0, 5000));
     this.assignDefined(
