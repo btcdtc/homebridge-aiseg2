@@ -2294,7 +2294,7 @@ export class Aiseg2Client {
   }
 
   private formPayload(data: unknown): string {
-    return `data=${JSON.stringify(data)}`;
+    return `data=${encodeURIComponent(JSON.stringify(data))}`;
   }
 
   private formFieldsPayload(data: Record<string, string>): string {

@@ -78,10 +78,17 @@ interface StatusAutomationConfig {
 const DEFAULT_STATUS_PORT = 18583;
 const DEFAULT_STATUS_BIND = '0.0.0.0';
 const STATUS_PATH_PREFIX = '/api/aiseg2/status/';
+const STATUS_CACHE_MS = 25000;
 
 export class Aiseg2StatusServer {
   private server?: Server;
   private token = '';
+  private statusCache?: {
+    expiresAt: number;
+    value: Record<string, unknown>;
+  };
+
+  private statusInflight?: Promise<Record<string, unknown>>;
 
   constructor(
     private readonly log: Logger,
@@ -157,7 +164,7 @@ export class Aiseg2StatusServer {
         return;
       }
 
-      this.writeJson(response, 200, await this.handleStatus());
+      this.writeJson(response, 200, await this.cachedStatus());
     } catch (error) {
       this.log.error(`AiSEG2 status API request failed: ${this.formatError(error)}`);
       this.writeJson(response, 500, { ok: false, error: 'internal error' });
@@ -199,6 +206,30 @@ export class Aiseg2StatusServer {
       homepage: this.homepageFields(ecocute, energy, weather, plan),
       errors,
     };
+  }
+
+  private async cachedStatus(): Promise<Record<string, unknown>> {
+    const now = Date.now();
+    if (this.statusCache && this.statusCache.expiresAt > now) {
+      return this.statusCache.value;
+    }
+    if (this.statusInflight) {
+      return this.statusInflight;
+    }
+
+    this.statusInflight = this.handleStatus()
+      .then(value => {
+        this.statusCache = {
+          value,
+          expiresAt: Date.now() + STATUS_CACHE_MS,
+        };
+        return value;
+      })
+      .finally(() => {
+        this.statusInflight = undefined;
+      });
+
+    return this.statusInflight;
   }
 
   private async ecocuteStatus(client: Aiseg2Client): Promise<Array<Record<string, unknown>>> {
@@ -449,7 +480,7 @@ export class Aiseg2StatusServer {
     const solar = this.solarHeatingPlan(now, state, energy, weather, heating);
     const emergency = this.emergencyHeatingPlan(hotWaterLiters);
     const nextSolar = this.nextSolarForecastPlan(weather);
-    const nightFallback = this.nightFallbackPlan(now, state, hotWaterLiters, nextSolar);
+    const nightFallback = this.nightFallbackPlan(now, hotWaterLiters, nextSolar);
     const current = this.currentHeatingPlan(emergency, solar, nightFallback);
 
     return {
@@ -615,25 +646,21 @@ export class Aiseg2StatusServer {
 
   private nightFallbackPlan(
     now: Date,
-    state: AutomationState,
     hotWaterLiters: number | undefined,
     nextSolar: Record<string, unknown>,
   ): Record<string, unknown> {
     const config = this.config.automation;
     const targetDate = this.nextLocalTimeDate(now, config.nightFallbackTime);
     const target = this.localDateTime(targetDate);
-    const daytimeDate = this.fallbackDaytimeLocalDate(targetDate);
     const lowWater = hotWaterLiters !== undefined && hotWaterLiters < config.nightFallbackHotWaterLiters;
-    const missedDaytime = state.lastStartedLocalDate !== daytimeDate;
     const nextSolarBlocked = nextSolar.blocked === true;
-    const shouldRun = config.enabled && (missedDaytime || lowWater || nextSolarBlocked);
+    const shouldRun = config.enabled && (lowWater || nextSolarBlocked);
     const reasons = [
-      missedDaytime ? `no daytime solar heating recorded for ${daytimeDate}` : undefined,
       lowWater ? `${Math.round(hotWaterLiters || 0)}L < ${config.nightFallbackHotWaterLiters}L` : undefined,
       nextSolarBlocked ? `tomorrow solar heat is blocked: ${nextSolar.reason}` : undefined,
     ].filter(Boolean);
-    const notNeededReason = `${target}: daytime heating recorded, hot water is above ` +
-      `${config.nightFallbackHotWaterLiters}L, and tomorrow solar looks usable`;
+    const notNeededReason = `${target}: hot water is above ${config.nightFallbackHotWaterLiters}L ` +
+      'and tomorrow solar looks usable';
 
     return {
       time: config.nightFallbackTime,
@@ -924,18 +951,6 @@ export class Aiseg2StatusServer {
     }
 
     return { start, end };
-  }
-
-  private fallbackDaytimeLocalDate(nightTarget: Date): string {
-    const config = this.config.automation;
-    const startMinutes = this.parseTimeMinutes(config.allowedStartTime, 0);
-    const daytime = new Date(nightTarget);
-    daytime.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
-    if (daytime.getTime() > nightTarget.getTime()) {
-      daytime.setDate(daytime.getDate() - 1);
-    }
-
-    return this.localDate(daytime);
   }
 
   private localDateTime(date: Date): string {

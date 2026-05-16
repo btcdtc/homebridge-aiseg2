@@ -321,13 +321,11 @@ export class EcocuteSolarAutomation {
       return { shouldStart: false, skipReason: `night fallback already started for ${targetDate}` };
     }
 
-    const daytimeDate = this.fallbackDaytimeLocalDate(timing.target);
-    const missedDaytime = this.state.lastStartedLocalDate !== daytimeDate;
     const threshold = this.platform.ecocuteSolarAutomationNumber('nightFallbackHotWaterLiters', 350, 0, 5000);
     const lowWater = status.remainingWaterLiters !== undefined && status.remainingWaterLiters < threshold;
     let nextSolarBlockedReason: string | undefined;
 
-    if (!missedDaytime && !lowWater) {
+    if (!lowWater) {
       try {
         nextSolarBlockedReason = this.nextSolarBlockedReason(await this.weatherForecast(timing.target));
       } catch (error) {
@@ -339,7 +337,6 @@ export class EcocuteSolarAutomation {
     }
 
     const reasons = [
-      missedDaytime ? `no daytime solar heating recorded for ${daytimeDate}` : undefined,
       lowWater ? `${Math.round(status.remainingWaterLiters || 0)}L below ${threshold}L at night fallback` : undefined,
       nextSolarBlockedReason ? `next solar window blocked: ${nextSolarBlockedReason}` : undefined,
     ].filter(Boolean);
@@ -537,17 +534,6 @@ export class EcocuteSolarAutomation {
     }
 
     return { start, end };
-  }
-
-  private fallbackDaytimeLocalDate(nightTarget: Date): string {
-    const startMinutes = this.parseTimeMinutes(this.platform.ecocuteSolarAutomationString('allowedStartTime', '09:30'), 570);
-    const daytime = new Date(nightTarget);
-    daytime.setHours(Math.floor(startMinutes / 60), startMinutes % 60, 0, 0);
-    if (daytime.getTime() > nightTarget.getTime()) {
-      daytime.setDate(daytime.getDate() - 1);
-    }
-
-    return this.localDate(daytime);
   }
 
   private parseTimeMinutes(value: string, defaultMinutes: number): number {
