@@ -59,6 +59,8 @@ export interface AirConditionerDevice extends Aiseg2Device {
   fanModeLabel?: string;
   currentTemperature?: number;
   targetTemperature?: number;
+  coolingTargetTemperature?: number;
+  heatingTargetTemperature?: number;
   currentHumidity?: number;
   outdoorTemperature?: number;
   minTemperature?: number;

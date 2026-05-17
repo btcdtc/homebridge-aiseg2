@@ -48,6 +48,8 @@ export interface AirConditionerStatus {
   active: boolean;
   currentTemperature?: number;
   targetTemperature?: number;
+  coolingTargetTemperature?: number;
+  heatingTargetTemperature?: number;
   currentHumidity?: number;
   outdoorTemperature?: number;
 }
@@ -83,6 +85,8 @@ export interface AirConditionerCapabilities {
   minTemperature?: number;
   maxTemperature?: number;
   targetTemperature?: number;
+  coolingTargetTemperature?: number;
+  heatingTargetTemperature?: number;
 }
 
 export interface ShutterStatus {
@@ -873,15 +877,19 @@ export class Aiseg2Client {
     const fanItem = this.airConditionerModifyItem(detailStatus, 's_img_ac');
     const source = detailStatus || panelStatus;
 
+    const mode = source.mode || modeItem?.current?.value || AirConditionerMode.Auto;
+    const targetTemperature = this.parseTemperature(source.temp);
+
     return {
       state: source.state || '0x31',
-      mode: source.mode || modeItem?.current?.value || AirConditionerMode.Auto,
+      mode,
       modeLabel: this.cleanDeviceName(modeItem?.current?.value_str || source.state_str || ''),
       fanMode: fanItem?.current?.value || undefined,
       fanModeLabel: this.cleanDeviceName(fanItem?.current?.value_str || ''),
       active: source.state === '0x30',
       currentTemperature: this.parseTemperature(source.inner),
-      targetTemperature: this.parseTemperature(source.temp),
+      targetTemperature,
+      ...this.airConditionerModeTargetTemperatures(mode, targetTemperature),
       currentHumidity: this.parseHumidity(source.humidity),
       outdoorTemperature: this.parseTemperature(source.outer),
     };
@@ -1926,14 +1934,17 @@ export class Aiseg2Client {
       this.requestText(this.airConditionerSettingPagePath(device, '32113')),
     ]);
     const temperaturePage = loadHtml(temperatureHtml);
+    const currentMode = this.extractSettingValue(modeHtml);
+    const targetTemperature = this.parseTemperature(temperaturePage('#setting_value').attr('value'));
     const capabilities: AirConditionerCapabilities = {
       modes: this.parseAirConditionerControlOptions(modeHtml),
       fanModes: this.parseAirConditionerControlOptions(fanHtml),
-      currentMode: this.extractSettingValue(modeHtml),
+      currentMode,
       currentFanMode: this.extractSettingValue(fanHtml),
       minTemperature: this.parseTemperatureLimit(temperaturePage('#btn_minus').attr('temp_limit_min')),
       maxTemperature: this.parseTemperatureLimit(temperaturePage('#btn_plus').attr('temp_limit_max')),
-      targetTemperature: this.parseTemperature(temperaturePage('#setting_value').attr('value')),
+      targetTemperature,
+      ...this.airConditionerModeTargetTemperatures(currentMode || '', targetTemperature),
     };
 
     this.airConditionerCapabilitiesCache.set(key, {
@@ -2472,6 +2483,30 @@ export class Aiseg2Client {
         return 's_img_ac';
       default:
         return '';
+    }
+  }
+
+  private airConditionerModeTargetTemperatures(
+    mode: string,
+    targetTemperature: number | undefined,
+  ): Pick<AirConditionerStatus, 'coolingTargetTemperature' | 'heatingTargetTemperature'> {
+    if (targetTemperature === undefined) {
+      return {};
+    }
+
+    switch (mode) {
+      case AirConditionerMode.Cool:
+        return { coolingTargetTemperature: targetTemperature };
+      case AirConditionerMode.Heat:
+      case AirConditionerMode.HumidifyHeat:
+        return { heatingTargetTemperature: targetTemperature };
+      case AirConditionerMode.Auto:
+        return {
+          coolingTargetTemperature: targetTemperature,
+          heatingTargetTemperature: targetTemperature,
+        };
+      default:
+        return {};
     }
   }
 

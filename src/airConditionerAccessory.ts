@@ -19,12 +19,15 @@ type AirConditionerAction =
   }
   | {
     kind: 'temperature';
+    target: AirConditionerTemperatureTarget;
     temperature: number;
   }
   | {
     kind: 'fanMode';
     fanMode: string;
   };
+
+type AirConditionerTemperatureTarget = 'cooling' | 'heating';
 
 interface RotationSpeedProps {
   minValue: number;
@@ -67,6 +70,8 @@ export class AirConditionerAccessory {
     targetHeaterCoolerState: 0,
     currentTemperature: 20,
     targetTemperature: 25,
+    coolingTargetTemperature: 25,
+    heatingTargetTemperature: 25,
     currentHumidity: undefined as number | undefined,
     outdoorTemperature: undefined as number | undefined,
     fanMode: AirConditionerFanMode.Auto as string,
@@ -89,6 +94,12 @@ export class AirConditionerAccessory {
     this.capabilities = this.capabilitiesFromDevice();
     this.state.currentTemperature = this.device.currentTemperature ?? this.state.currentTemperature;
     this.state.targetTemperature = this.device.targetTemperature ?? this.capabilities.targetTemperature ?? this.state.targetTemperature;
+    this.state.coolingTargetTemperature = this.device.coolingTargetTemperature ??
+      this.capabilities.coolingTargetTemperature ??
+      this.state.targetTemperature;
+    this.state.heatingTargetTemperature = this.device.heatingTargetTemperature ??
+      this.capabilities.heatingTargetTemperature ??
+      this.state.targetTemperature;
     this.state.currentHumidity = this.device.currentHumidity;
     this.state.outdoorTemperature = this.device.outdoorTemperature;
     this.state.fanMode = this.device.fanMode || this.capabilities.currentFanMode || this.state.fanMode;
@@ -123,6 +134,8 @@ export class AirConditionerAccessory {
       active: this.device.state === '0x30',
       currentTemperature: this.device.currentTemperature,
       targetTemperature: this.device.targetTemperature,
+      coolingTargetTemperature: this.device.coolingTargetTemperature,
+      heatingTargetTemperature: this.device.heatingTargetTemperature,
       currentHumidity: this.device.currentHumidity,
       outdoorTemperature: this.device.outdoorTemperature,
     });
@@ -154,9 +167,9 @@ export class AirConditionerAccessory {
     await this.setMode(this.modeForTargetHeaterCoolerState(targetState));
   }
 
-  async setTargetTemperature(value: CharacteristicValue): Promise<void> {
+  async setTargetTemperature(target: AirConditionerTemperatureTarget, value: CharacteristicValue): Promise<void> {
     const temperature = this.normalizeTemperature(value);
-    await this.runAction({ kind: 'temperature', temperature });
+    await this.runAction({ kind: 'temperature', target, temperature });
   }
 
   async setRotationSpeed(value: CharacteristicValue): Promise<void> {
@@ -371,6 +384,15 @@ export class AirConditionerAccessory {
 
     if (status.targetTemperature !== undefined) {
       this.state.targetTemperature = status.targetTemperature;
+      this.applyTargetTemperatureForMode(status.mode, status.targetTemperature);
+    }
+
+    if (status.coolingTargetTemperature !== undefined) {
+      this.state.coolingTargetTemperature = status.coolingTargetTemperature;
+    }
+
+    if (status.heatingTargetTemperature !== undefined) {
+      this.state.heatingTargetTemperature = status.heatingTargetTemperature;
     }
 
     if (status.currentHumidity !== undefined) {
@@ -394,10 +416,12 @@ export class AirConditionerAccessory {
           this.state.targetHeaterCoolerState = nativeTarget;
         }
         this.state.mode = action.mode;
+        this.state.targetTemperature = this.targetTemperatureForMode(action.mode);
         break;
       }
       case 'temperature':
         this.state.targetTemperature = action.temperature;
+        this.applyTargetTemperatureForTarget(action.target, action.temperature);
         break;
       case 'fanMode':
         this.state.fanMode = action.fanMode;
@@ -467,8 +491,8 @@ export class AirConditionerAccessory {
   }
 
   private updateTemperatureTargets(): void {
-    this.service.updateCharacteristic(this.platform.Characteristic.CoolingThresholdTemperature, this.state.targetTemperature);
-    this.service.updateCharacteristic(this.platform.Characteristic.HeatingThresholdTemperature, this.state.targetTemperature);
+    this.service.updateCharacteristic(this.platform.Characteristic.CoolingThresholdTemperature, this.state.coolingTargetTemperature);
+    this.service.updateCharacteristic(this.platform.Characteristic.HeatingThresholdTemperature, this.state.heatingTargetTemperature);
   }
 
   private configureHeaterCoolerService(): void {
@@ -485,8 +509,8 @@ export class AirConditionerAccessory {
       .onGet(() => this.state.targetHeaterCoolerState);
     this.service.getCharacteristic(this.platform.Characteristic.CurrentTemperature)
       .onGet(() => this.state.currentTemperature);
-    this.configureTemperatureCharacteristic(this.platform.Characteristic.CoolingThresholdTemperature);
-    this.configureTemperatureCharacteristic(this.platform.Characteristic.HeatingThresholdTemperature);
+    this.configureTemperatureCharacteristic(this.platform.Characteristic.CoolingThresholdTemperature, 'cooling');
+    this.configureTemperatureCharacteristic(this.platform.Characteristic.HeatingThresholdTemperature, 'heating');
     this.configureRotationSpeedCharacteristic(this.service);
     this.service.updateCharacteristic(
       this.platform.Characteristic.TemperatureDisplayUnits,
@@ -494,16 +518,19 @@ export class AirConditionerAccessory {
     );
   }
 
-  private configureTemperatureCharacteristic(characteristic: typeof this.platform.Characteristic.CoolingThresholdTemperature): void {
+  private configureTemperatureCharacteristic(
+    characteristic: typeof this.platform.Characteristic.CoolingThresholdTemperature,
+    target: AirConditionerTemperatureTarget,
+  ): void {
     this.service.getCharacteristic(characteristic)
-      .updateValue(this.state.targetTemperature)
+      .updateValue(this.targetTemperatureForTarget(target))
       .setProps({
         minValue: this.state.minTemperature,
         maxValue: this.state.maxTemperature,
         minStep: 1,
       })
-      .onSet(this.setTargetTemperature.bind(this))
-      .onGet(() => this.state.targetTemperature);
+      .onSet(this.setTargetTemperature.bind(this, target))
+      .onGet(() => this.targetTemperatureForTarget(target));
   }
 
   private configureRotationSpeedCharacteristic(service: Service): void {
@@ -763,7 +790,8 @@ export class AirConditionerAccessory {
           ? !status.active
           : status.active && status.mode === action.mode;
       case 'temperature':
-        return status.targetTemperature === undefined || status.targetTemperature === action.temperature;
+        return this.statusTemperatureForTarget(status, action.target) === undefined ||
+          this.statusTemperatureForTarget(status, action.target) === action.temperature;
       case 'fanMode':
         return status.fanMode === undefined || status.fanMode === action.fanMode;
     }
@@ -774,7 +802,7 @@ export class AirConditionerAccessory {
       case 'mode':
         return this.state.mode === action.mode;
       case 'temperature':
-        return this.state.targetTemperature === action.temperature;
+        return this.targetTemperatureForTarget(action.target) === action.temperature;
       case 'fanMode':
         return this.state.fanMode === action.fanMode;
     }
@@ -793,7 +821,7 @@ export class AirConditionerAccessory {
       case 'mode':
         return this.formatMode(this.state.mode);
       case 'temperature':
-        return `${this.state.targetTemperature}C`;
+        return `${this.targetTemperatureForTarget(action.target)}C`;
       case 'fanMode':
         return this.formatFanMode(this.state.fanMode);
     }
@@ -804,7 +832,7 @@ export class AirConditionerAccessory {
       case 'mode':
         return this.formatMode(action.mode);
       case 'temperature':
-        return `${action.temperature}C`;
+        return `${this.temperatureTargetLabel(action.target)} ${action.temperature}C`;
       case 'fanMode':
         return this.formatFanMode(action.fanMode);
     }
@@ -815,7 +843,7 @@ export class AirConditionerAccessory {
       case 'mode':
         return 'mode';
       case 'temperature':
-        return 'temperature';
+        return `${action.target} temperature`;
       case 'fanMode':
         return 'fan speed';
     }
@@ -829,6 +857,8 @@ export class AirConditionerAccessory {
       minTemperature: this.device.minTemperature,
       maxTemperature: this.device.maxTemperature,
       targetTemperature: this.device.targetTemperature,
+      coolingTargetTemperature: this.device.coolingTargetTemperature,
+      heatingTargetTemperature: this.device.heatingTargetTemperature,
     };
   }
 
@@ -969,6 +999,77 @@ export class AirConditionerAccessory {
       default:
         return undefined;
     }
+  }
+
+  private targetTemperatureForMode(mode: string): number {
+    switch (mode) {
+      case AirConditionerMode.Cool:
+        return this.state.coolingTargetTemperature;
+      case AirConditionerMode.Heat:
+      case AirConditionerMode.HumidifyHeat:
+        return this.state.heatingTargetTemperature;
+      default:
+        return this.state.targetTemperature;
+    }
+  }
+
+  private targetTemperatureForTarget(target: AirConditionerTemperatureTarget): number {
+    return target === 'cooling'
+      ? this.state.coolingTargetTemperature
+      : this.state.heatingTargetTemperature;
+  }
+
+  private applyTargetTemperatureForMode(mode: string, temperature: number): void {
+    switch (mode) {
+      case AirConditionerMode.Cool:
+        this.state.coolingTargetTemperature = temperature;
+        break;
+      case AirConditionerMode.Heat:
+      case AirConditionerMode.HumidifyHeat:
+        this.state.heatingTargetTemperature = temperature;
+        break;
+      case AirConditionerMode.Auto:
+        this.state.coolingTargetTemperature = temperature;
+        this.state.heatingTargetTemperature = temperature;
+        break;
+    }
+  }
+
+  private applyTargetTemperatureForTarget(target: AirConditionerTemperatureTarget, temperature: number): void {
+    if (target === 'cooling') {
+      this.state.coolingTargetTemperature = temperature;
+      return;
+    }
+
+    this.state.heatingTargetTemperature = temperature;
+  }
+
+  private statusTemperatureForTarget(
+    status: AirConditionerStatus,
+    target: AirConditionerTemperatureTarget,
+  ): number | undefined {
+    if (target === 'cooling' && status.coolingTargetTemperature !== undefined) {
+      return status.coolingTargetTemperature;
+    }
+
+    if (target === 'heating' && status.heatingTargetTemperature !== undefined) {
+      return status.heatingTargetTemperature;
+    }
+
+    if (
+      status.targetTemperature !== undefined &&
+      ((target === 'cooling' && status.mode === AirConditionerMode.Cool) ||
+        (target === 'heating' && (status.mode === AirConditionerMode.Heat || status.mode === AirConditionerMode.HumidifyHeat)) ||
+        status.mode === AirConditionerMode.Auto)
+    ) {
+      return status.targetTemperature;
+    }
+
+    return undefined;
+  }
+
+  private temperatureTargetLabel(target: AirConditionerTemperatureTarget): string {
+    return target === 'cooling' ? 'cooling' : 'heating';
   }
 
   private rotationSpeedProps(): RotationSpeedProps {

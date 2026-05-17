@@ -202,6 +202,12 @@ export class Aiseg2Platform implements DynamicPlatformPlugin {
       device.fanModeLabel = status.fanModeLabel;
       device.currentTemperature = status.currentTemperature;
       device.targetTemperature = status.targetTemperature ?? capabilities.targetTemperature;
+      device.coolingTargetTemperature = status.coolingTargetTemperature ??
+        capabilities.coolingTargetTemperature ??
+        device.targetTemperature;
+      device.heatingTargetTemperature = status.heatingTargetTemperature ??
+        capabilities.heatingTargetTemperature ??
+        device.targetTemperature;
       device.currentHumidity = status.currentHumidity;
       device.outdoorTemperature = status.outdoorTemperature;
       device.minTemperature = capabilities.minTemperature;
